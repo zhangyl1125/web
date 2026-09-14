@@ -56,7 +56,6 @@ make help
 | Command | Description |
 |---------|-------------|
 | `make db/reset` | Reset local database |
-| `make db/seed` | Seed with sample data |
 | `make db/status` | Show database status |
 
 ## 💡 Tips

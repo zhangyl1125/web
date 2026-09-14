@@ -94,14 +94,10 @@ status: ## Show status of local services
 	fi
 
 ##@ Database Management
-.PHONY: db/reset db/seed db/migrate db/status supabase/setup
+.PHONY: db/reset db/migrate db/status supabase/setup
 db/reset: ## Reset the local database
 	@echo "$(YELLOW)🔄 Resetting local database...$(NC)"
 	@supabase db reset
-
-db/seed: ## Seed the database with sample data
-	@echo "$(YELLOW)🌱 Seeding database with sample data...$(NC)"
-	@npm run seed-data
 
 db/migrate: ## Run database migrations
 	@echo "$(YELLOW)🔄 Running database migrations...$(NC)"
@@ -162,15 +158,7 @@ preview: ## Preview the production build
 	@npm run preview
 
 ##@ Admin & Utilities
-.PHONY: admin/cli create/accounts env/example logs
-admin/cli: ## Run the admin CLI tool
-	@echo "$(YELLOW)👤 Running admin CLI...$(NC)"
-	@npm run admin-cli
-
-create/accounts: ## Create sample user accounts
-	@echo "$(YELLOW)👥 Creating sample accounts...$(NC)"
-	@npm run create-accounts
-
+.PHONY: env/example logs
 env/example: ## Create .env.example from current .env.local
 	@echo "$(YELLOW)📄 Creating .env.example...$(NC)"
 	@if [ -f ".env.local" ]; then \

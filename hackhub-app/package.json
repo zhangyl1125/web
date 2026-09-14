@@ -11,9 +11,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "admin-cli": "node admin-cli.js",
-    "create-accounts": "node create-accounts.js",
-    "seed-data": "node seed-data.js",
     "prepare": "husky"
   },
   "dependencies": {

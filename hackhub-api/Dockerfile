@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# Use BuildKit's bundled Dockerfile frontend to avoid an extra Docker Hub pull.
 
 # Multi-stage build — builder + minimal JRE runtime
 

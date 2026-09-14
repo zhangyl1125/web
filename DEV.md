@@ -53,6 +53,33 @@ host-loopback proxy URL for the build, and mounts the CA only during the build.
 The certificate is not stored in the repository or copied into the runtime
 images. Leave these variables unset for a direct public-network build.
 
+Both Dockerfiles use BuildKit's bundled frontend, avoiding an extra pull of
+`docker/dockerfile` before the build starts. Use a recent Docker Engine with
+BuildKit support for heredocs and secret/cache mounts.
+
+If loading a base image fails with `Proxy authentication required`, configure
+the Docker daemon or the selected BuildKit builder with a working authenticated
+proxy. The Compose `DOCKER_BUILD_*` variables above only affect commands inside
+build containers; they do not configure registry access for the builder.
+See https://docs.docker.com/engine/daemon/proxy/ for Docker daemon configuration.
+
+On this Linux workstation, if the logged-in user's local proxy works but Docker
+still receives HTTP 407, use the user-proxy build helper from the repository root:
+
+```bash
+python3 scripts/build-with-user-proxy.py
+docker compose up -d --no-build
+```
+
+This requires Python 3.8+, access to the local Docker Engine, and an authenticated
+HTTP proxy at `127.0.0.1:3128`. Missing official Docker Hub base images are
+downloaded through that proxy, SHA-256 verified, and imported into Docker. During
+the build, a temporary relay binds to the Docker bridge and forwards requests
+through the user's local proxy. It stops when the build exits. This does not
+change Docker's global proxy configuration; ordinary `docker pull` may still
+need the daemon's proxy authentication repaired. Use the helper again for future
+builds while that daemon issue persists.
+
 ## Manual Dev Mode (hot reload)
 
 Requires Postgres + MinIO running:

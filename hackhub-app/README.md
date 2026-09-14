@@ -117,8 +117,6 @@ If you prefer manual setup or don't have `make` available:
 3. **Database Setup**
    ```bash
    supabase start            # Start local Supabase
-   npm run create-accounts   # Create test accounts
-   npm run seed-data         # Add sample data
    ```
 
 4. **Start Development**
@@ -223,10 +221,6 @@ supabase stop                # Stop local Supabase
 supabase status              # Check service status
 supabase db reset            # Reset database to clean state
 
-# Data Management
-npm run create-accounts      # Create test user accounts
-npm run seed-data            # Add sample data to database
-npm run admin-cli            # Launch admin CLI tool
 ```
 
 ### Makefile Commands (Recommended)
@@ -248,7 +242,6 @@ make clean                   # Clean dependencies and artifacts
 
 # Database Management
 make db/reset                # Reset local database
-make db/seed                 # Seed with sample data
 make db/status               # Show database status
 
 # Utilities
@@ -294,8 +287,6 @@ cd hackathon
 npm install
 cp .env.local.example .env.local
 supabase start
-npm run create-accounts
-npm run seed-data
 
 # 3. Create a feature branch
 git checkout -b feature/amazing-feature
