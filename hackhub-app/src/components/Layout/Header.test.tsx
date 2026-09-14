@@ -14,7 +14,7 @@ import { useAuthStore } from '../../store/authStore'
 const mockUseAuthStore = useAuthStore as unknown as ReturnType<typeof vi.fn>
 
 function CurrentPath() {
-  return <output data-testid="current-path">{useLocation().pathname}</output>
+  return <output data-testid="current-path">{useLocation().pathname + useLocation().search}</output>
 }
 
 function renderHeader(props?: { opened?: boolean; toggle?: () => void }) {
@@ -59,22 +59,25 @@ describe('Header', () => {
 
   it('keeps the account role in the account menu', async () => {
     renderHeader()
-    expect(screen.queryByText('参与者')).not.toBeInTheDocument()
+    expect(screen.queryByText('Participant')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Alice' }))
-    expect(await screen.findByText('参与者')).toBeInTheDocument()
-    expect(screen.getByText('个人资料')).toBeInTheDocument()
+    expect(await screen.findByText('Participant')).toBeInTheDocument()
+    expect(screen.getByText('Profile')).toBeInTheDocument()
   })
 
-  it('defaults to Chinese and toggles to English', () => {
+  it('uses English even with a saved Chinese preference and has no language switch', () => {
+    localStorage.setItem('hackhub-language', 'zh')
     renderHeader()
-    const languageToggle = screen.getByRole('button', { name: '切换到英文' })
-    expect(languageToggle).toHaveTextContent('中')
-    expect(languageToggle).not.toHaveTextContent('EN')
-    fireEvent.click(languageToggle)
-    const englishToggle = screen.getByRole('button', { name: 'Switch to Chinese' })
-    expect(englishToggle).toHaveTextContent('EN')
-    expect(englishToggle).not.toHaveTextContent('中')
+    expect(screen.queryByRole('button', { name: /Switch to Chinese|切换到英文/ })).not.toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('en')
     expect(localStorage.getItem('hackhub-language')).toBe('en')
+  })
+
+  it('opens voting records from the account menu', async () => {
+    renderHeader()
+    fireEvent.click(screen.getByRole('button', { name: 'Alice' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'My voting records' }))
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/projects?view=voting-records')
   })
 
   it('user menu trigger is clickable', () => {
@@ -96,7 +99,7 @@ describe('Header', () => {
     })
     renderHeader()
     fireEvent.click(screen.getByRole('button', { name: 'Alice' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '退出登录' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Logout' }))
     await waitFor(() => expect(screen.getByTestId('current-path')).toHaveTextContent(/^\/$/))
     expect(logoutMock).toHaveBeenCalledOnce()
     consoleError.mockRestore()

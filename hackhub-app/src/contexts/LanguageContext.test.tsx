@@ -21,18 +21,18 @@ describe('LanguageProvider', () => {
     localStorage.clear()
   })
 
-  it('translates all static UI content to Chinese by default and restores English', () => {
+  it('keeps English when a language toggle is requested', () => {
     render(
       <LanguageProvider>
         <TestContent />
       </LanguageProvider>,
     )
 
-    expect(screen.getByText('黑客松')).toBeInTheDocument()
-    expect(screen.getByText('12 位参与者')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('搜索黑客松……')).toBeInTheDocument()
+    expect(screen.getByText('Hackathons')).toBeInTheDocument()
+    expect(screen.getByText('12 participants')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search hackathons...')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'zh' }))
+    fireEvent.click(screen.getByRole('button', { name: 'en' }))
 
     expect(screen.getByText('Hackathons')).toBeInTheDocument()
     expect(screen.getByText('12 participants')).toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('LanguageProvider', () => {
     )
     expect(screen.getByText('Tags you want to add')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/^In 3–5 sentences/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'zh' }))
+    fireEvent.click(screen.getByRole('button', { name: 'en' }))
     fireEvent.click(screen.getByRole('button', { name: 'en' }))
     expect(screen.getByPlaceholderText(/^In 3–5 sentences/)).toBeInTheDocument()
   })

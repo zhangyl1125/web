@@ -123,6 +123,24 @@ public class IdeaController {
 		return new VoteResponse(result.voted(), result.voteCount());
 	}
 
+	@Operation(summary = "Submit the signed-in user's voting cart atomically")
+	@PostMapping("/api/v1/me/votes")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void submitVotes(@Valid @RequestBody SubmitVotesRequest req, @AuthenticationPrincipal UUID userId) {
+		voteIdeaUseCase.submit(req.ideaIds(), userId);
+	}
+
+	public record SubmitVotesRequest(
+			@jakarta.validation.constraints.NotEmpty List<@jakarta.validation.constraints.NotNull UUID> ideaIds) {
+	}
+
+	@Operation(summary = "Delete one voting record belonging to the signed-in user")
+	@DeleteMapping("/api/v1/me/votes/{ideaId}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void deleteVoteRecord(@PathVariable UUID ideaId, @AuthenticationPrincipal UUID userId) {
+		voteIdeaUseCase.deleteRecord(ideaId, userId);
+	}
+
 	@Operation(summary = "Clear all votes belonging to the signed-in user")
 	@DeleteMapping("/api/v1/me/votes")
 	@ResponseStatus(HttpStatus.NO_CONTENT)

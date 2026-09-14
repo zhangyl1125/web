@@ -69,6 +69,50 @@ class VoteIdeaUseCaseTest {
 		when(votes.countByIdeaId(any())).thenAnswer(c -> ballot.containsKey(c.getArgument(0)) ? 1L : 0L);
 	}
 	@Test
+	void submitting_a_cart_is_idempotent_and_preserves_existing_votes() {
+		UUID first = nomination("BD/DPA-SRE3", "Customer Values");
+		UUID second = nomination("BD/BA-AP", "Customer Values");
+		useCase.submit(List.of(first, second, first), voter);
+		useCase.submit(List.of(first, second), voter);
+		assertThat(ballot).containsOnlyKeys(first, second);
+		verify(votes, times(2)).save(any());
+		verify(votes, never()).delete(any());
+	}
+
+	@Test
+	void submitted_votes_count_towards_subsequent_cart_limits() {
+		useCase.submit(List.of(nomination("BD/DPA-SRE3", "Customer Values"),
+				nomination("BD/DPA-SRE2", "Customer Values")), voter);
+		assertThatThrownBy(() -> useCase.submit(List.of(nomination("BD/DPA-XYZ", "Customer Values")), voter))
+				.isInstanceOf(VoteIdeaUseCase.OwnDepartmentVoteLimitExceededException.class);
+		assertThat(ballot).hasSize(2);
+	}
+
+	@Test
+	void submitting_locks_all_ideas_in_order_before_the_voter() {
+		UUID first = nomination("BD/DPA-SRE3", "Customer Values");
+		UUID second = nomination("BD/BA-AP", "Customer Values");
+		useCase.submit(List.of(second, first), voter);
+		var order = inOrder(lock, profiles);
+		for (UUID id : List.of(first, second).stream().sorted().toList())
+			order.verify(lock).acquire(id);
+		order.verify(profiles).findByIdForUpdate(voter);
+	}
+
+	@Test
+	void deleting_a_record_is_idempotent_and_scoped_to_the_signed_in_user() {
+		UUID idea = nomination("BD/DPA-SRE3", "Customer Values");
+		useCase.submit(List.of(idea), voter);
+		clearInvocations(votes);
+		useCase.deleteRecord(idea, voter);
+		useCase.deleteRecord(idea, voter);
+		assertThat(ballot).isEmpty();
+		verify(votes, times(2)).findByIdeaIdAndUserId(idea, voter);
+		verify(votes, times(1)).delete(any());
+		verify(votes, never()).save(any());
+	}
+
+	@Test
 	void clear_all_reads_only_own_ballot_under_voter_lock() {
 		UUID own = nomination("BD/DPA-SRE3", "Customer Values");
 		UUID outside = nomination("BD/BA-AP", "Innovation Breakthrough");

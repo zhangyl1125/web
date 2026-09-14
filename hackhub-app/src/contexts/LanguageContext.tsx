@@ -172,10 +172,10 @@ interface LanguageContextValue {
 }
 
 const LanguageContext = createContext<LanguageContextValue>({
-  language: 'zh',
+  language: 'en',
   setLanguage: () => undefined,
   toggleLanguage: () => undefined,
-  t: (key, replacements) => interpolate(chinese[key], replacements),
+  t: (key, replacements) => interpolate(english[key], replacements),
 })
 
 function interpolate(value: string, replacements?: Replacements) {
@@ -189,10 +189,8 @@ function interpolate(value: string, replacements?: Replacements) {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const originalText = useRef(new WeakMap<Text, string>())
   const originalAttributes = useRef(new WeakMap<Element, Map<string, string>>())
-  const [language, setLanguage] = useState<Language>(() => {
-    const savedLanguage = localStorage.getItem('hackhub-language')
-    return savedLanguage === 'en' ? 'en' : 'zh'
-  })
+  const [language, updateLanguage] = useState<Language>('en')
+  const setLanguage = useCallback(() => updateLanguage('en'), [])
 
   useEffect(() => {
     localStorage.setItem('hackhub-language', language)
@@ -325,7 +323,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   const toggleLanguage = useCallback(() => {
-    setLanguage((current) => current === 'zh' ? 'en' : 'zh')
+    updateLanguage('en')
   }, [])
 
   const t = useCallback((key: TranslationKey, replacements?: Replacements) => {
@@ -334,7 +332,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({ language, setLanguage, toggleLanguage, t }),
-    [language, toggleLanguage, t],
+    [language, setLanguage, toggleLanguage, t],
   )
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>

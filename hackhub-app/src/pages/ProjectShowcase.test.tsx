@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { MemoryRouter } from 'react-router-dom'
 import { ProjectShowcase } from './ProjectShowcase'
 
-const { createIdea, createTeam, getOrCreateNominationTeam, getComments, addComment, getIdeas, getHackathons, updateIdea, uploadFile, voteIdea, clearMyVotes, clearTrackVotes, deleteIdea, deleteIdeas, currentUser, listNominees } = vi.hoisted(() => ({
+const { createIdea, createTeam, getOrCreateNominationTeam, getComments, addComment, getIdeas, getHackathons, updateIdea, uploadFile, voteIdea, clearMyVotes, clearTrackVotes, submitVotes, deleteVoteRecord, deleteIdea, deleteIdeas, currentUser, listNominees } = vi.hoisted(() => ({
+  submitVotes: vi.fn().mockResolvedValue(undefined),
+  deleteVoteRecord: vi.fn().mockResolvedValue(undefined),
   deleteIdea: vi.fn().mockResolvedValue(undefined),
   deleteIdeas: vi.fn().mockResolvedValue(undefined),
   currentUser: { id: 'user-1', email: 'user@example.com', name: 'User', role: 'participant' as 'participant' | 'manager' | 'admin', skills: [] },
@@ -67,6 +69,8 @@ vi.mock('../services/ideaService', () => ({
     getIdeas,
     voteIdea,
     clearMyVotes,
+    submitVotes,
+    deleteVoteRecord,
     clearTrackVotes,
     createIdea,
     getComments,
@@ -102,15 +106,8 @@ vi.mock('../services/judgingService', () => ({
   JudgingService: { getJudges: vi.fn().mockResolvedValue([]) },
 }))
 
-async function confirmSavedVote() {
-  const dialog = await screen.findByRole('dialog', { name: 'Vote saved' })
-  expect(within(dialog).getByRole('status')).toHaveTextContent('Your vote has been saved')
-  await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
-  await waitFor(() => expect(dialog).not.toBeInTheDocument())
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Voted, 3 votes' })).toHaveFocus())
-}
-
 describe('ProjectShowcase', () => {
+  beforeEach(() => { localStorage.clear(); vi.clearAllMocks() })
   afterEach(() => { currentUser.role = 'participant' })
   it('shows nominees without exposing internal event concepts', async () => {
     render(
@@ -182,206 +179,132 @@ describe('ProjectShowcase', () => {
     expect(screen.getByRole('textbox', { name: /Executive Summary/ })).toHaveValue('Keep this contribution when switching categories.')
   })
 
-  it('shows a clear filled vote state directly on the project card', async () => {
-    const user = userEvent.setup()
-    render(
-      <MantineProvider>
-        <MemoryRouter>
-          <ProjectShowcase />
-        </MemoryRouter>
-      </MantineProvider>
-    )
-
-    const voteButton = await screen.findByRole('button', { name: 'Vote, 2 votes' })
-    await user.click(voteButton)
-    await confirmSavedVote()
-
-    expect(voteIdea).toHaveBeenCalledWith('idea-1')
-    const votedButton = await screen.findByRole('button', { name: 'Voted, 3 votes' })
-    expect(votedButton.closest('.dp-project-card')).toHaveAttribute('data-voted', 'true')
-    expect(screen.getByText('Voted', { selector: '.dp-vote-stamp span' })).toBeInTheDocument()
-  })
-
-  it('requires acknowledgement after saving a vote', async () => {
-    const actor = userEvent.setup()
-    voteIdea.mockClear()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await actor.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
-    const feedback = await screen.findByRole('dialog', { name: 'Vote saved' })
-    expect(voteIdea).toHaveBeenCalledTimes(1)
-    await actor.keyboard('{Escape}')
-    await actor.click(document.querySelector('.mantine-Modal-overlay') as HTMLElement)
-    expect(feedback).toBeInTheDocument()
-    await confirmSavedVote()
-    expect(voteIdea).toHaveBeenCalledTimes(1)
-  })
-
-  it.each([
-    ['Each participant can cast at most 4 votes per award category.', 'Previous votes count too'],
-    ['At most 2 votes may be cast for projects from your department (BD/DPA).', 'At most 2 votes'],
-    ['At most 2 votes per award category may go outside your department.', 'At most 2 votes'],
-    ['Unable to connect. Please try again.', 'Unable to connect'],
-  ])('keeps nomination details open when voting fails: %s', async (message, expected) => {
-    const actor = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await actor.click(await screen.findByRole('button', { name: 'View details' }))
-    const details = screen.getByRole('dialog', { name: 'Customer Portal Renewal' })
-    voteIdea.mockRejectedValueOnce(new Error(message))
-    await actor.click(within(details).getByRole('button', { name: 'Vote (2)' }))
-    const feedback = await screen.findByRole('dialog', { name: 'Vote not saved' })
-    expect(within(feedback).getByRole('alert')).toHaveTextContent(expected)
-    await actor.keyboard('{Escape}')
-    expect(feedback).toBeInTheDocument()
-    await actor.click(within(feedback).getByRole('button', { name: 'Confirm' }))
-    await waitFor(() => expect(feedback).not.toBeInTheDocument())
-    expect(details).toBeInTheDocument()
-    expect(within(details).getByRole('button', { name: 'Vote (2)' })).toBeEnabled()
-  })
-
-  it('restores the filled card state for a vote returned by the API', async () => {
-    getIdeas.mockResolvedValueOnce({
-      content: [{
-        id: 'idea-1',
-        title: 'Customer Portal Renewal',
-        description: 'Uploaded by an administrator',
-        teamId: 'team-1',
-        createdBy: 'user-1',
-        category: 'AI',
-        tags: ['Java'],
-        attachments: [],
-        projectAttachments: [],
-        votes: 3,
-        userHasVoted: true,
-        status: 'submitted',
-        createdAt: '2026-09-01T00:00:00Z',
-        updatedAt: '2026-09-01T00:00:00Z',
-      }],
-    })
-
-    render(
-      <MantineProvider>
-        <MemoryRouter>
-          <ProjectShowcase />
-        </MemoryRouter>
-      </MantineProvider>
-    )
-
-    const votedButton = await screen.findByRole('button', { name: 'Voted, 3 votes' })
-    expect(votedButton.closest('.dp-project-card')).toHaveAttribute('data-voted', 'true')
-    expect(screen.getByText('Voted', { selector: '.dp-vote-stamp span' })).toBeInTheDocument()
+  const renderVoting = (path = '/projects') => render(<MantineProvider env="test"><MemoryRouter initialEntries={[path]}><ProjectShowcase /></MemoryRouter></MantineProvider>)
+  const openCartWithSelection = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
     await userEvent.click(screen.getByRole('button', { name: 'My votes (1)' }))
-    expect(within(await screen.findByRole('dialog')).getByText('Customer Portal Renewal')).toBeInTheDocument()
-  })
+    return screen.getByRole('dialog', { name: 'My votes (1)' })
+  }
+  const mockSubmitted = async () => {
+    const page = await getIdeas.getMockImplementation()!()
+    getIdeas.mockResolvedValueOnce({ ...page, content: page.content.map((idea) => ({ ...idea, userHasVoted: true, votes: 3 })) })
+  }
 
-  it('keeps votes visible across filters and removes them from the cart and card together', async () => {
-    const user = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    await user.type(screen.getByPlaceholderText('Search nominees'), 'No matching nominee')
-    expect(screen.queryByText('Customer Portal Renewal')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'My votes (1)' }))
-    const cart = screen.getByRole('dialog')
+  it('keeps selections in the cart without writing votes until Submit', async () => {
+    renderVoting()
+    const cart = await openCartWithSelection()
     expect(within(cart).getByText('Customer Portal Renewal')).toBeInTheDocument()
-    voteIdea.mockResolvedValueOnce({ voted: false, voteCount: 2 })
-    await user.click(within(cart).getByRole('button', { name: 'Remove vote for Customer Portal Renewal' }))
-    expect(await within(cart).findByText('No votes yet')).toBeInTheDocument()
-    await user.click(within(cart).getByRole('button', { name: 'Close my votes' }))
-    await user.clear(screen.getByPlaceholderText('Search nominees'))
-    expect(await screen.findByRole('button', { name: 'Vote, 2 votes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'My votes (0)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'In cart, 2 votes' })).toBeInTheDocument()
+    expect(voteIdea).not.toHaveBeenCalled()
+    expect(submitVotes).not.toHaveBeenCalled()
+    await mockSubmitted()
+    await userEvent.click(within(cart).getByRole('button', { name: 'Submit' }))
+    const records = await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })
+    expect(await within(records).findByText('Customer Portal Renewal')).toBeInTheDocument()
+    expect(submitVotes).toHaveBeenCalledExactlyOnceWith(['idea-1'])
+    expect(within(records).getByRole('status')).toHaveTextContent('saved to the database')
+    await userEvent.click(within(records).getByRole('button', { name: 'Back to nominees' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'My votes (0)' }))
+    expect(screen.getByText('Your cart is empty.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeDisabled()
+    expect(localStorage.getItem('award-voting-cart-v1:user-1')).toBe('[]')
   })
 
-  it('keeps the cart open while voting on the candidate list', async () => {
-    const user = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await screen.findByRole('button', { name: 'Vote, 2 votes' })
-    await user.click(screen.getByRole('button', { name: 'My votes (0)' }))
-    const cart = screen.getByRole('dialog')
-    expect(cart).toHaveAttribute('aria-modal', 'false')
-    await user.click(screen.getByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    expect(await within(cart).findByText('Customer Portal Renewal')).toBeInTheDocument()
-    voteIdea.mockResolvedValueOnce({ voted: false, voteCount: 2 })
-    await user.click(screen.getByRole('button', { name: 'Voted, 3 votes' }))
-    expect(await within(cart).findByText('No votes yet')).toBeInTheDocument()
-    expect(cart).toBeInTheDocument()
+  it('loads submitted records through the account link with an empty cart', async () => {
+    await mockSubmitted()
+    renderVoting('/projects?view=voting-records')
+    const records = await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })
+    expect(await within(records).findByText('Customer Portal Renewal')).toBeInTheDocument()
+    await userEvent.click(within(records).getByRole('button', { name: 'Back to nominees' }))
+    expect(await screen.findByRole('button', { name: 'My votes (0)' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Submitted, 3 votes' }))
+    expect(await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })).toBeInTheDocument()
+    expect(voteIdea).not.toHaveBeenCalled()
   })
 
-  it('clears the whole cart, retains it on failure, and lets the user vote again', async () => {
-    const user = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    await user.click(screen.getByRole('button', { name: 'My votes (1)' }))
-    const cart = screen.getByRole('dialog')
-    clearMyVotes.mockRejectedValueOnce(new Error('Unable to clear votes. Please try again.'))
-    await user.click(within(cart).getByRole('button', { name: 'Clear all' }))
-    expect(await within(cart).findByRole('alert')).toHaveTextContent('Unable to clear votes')
+  it.each(['Each participant can cast at most 4 votes per award category.', 'At most 2 votes may be cast for projects from your department.', 'Unable to connect. Please try again.'])('retains the entire cart when submission fails: %s', async (message) => {
+    renderVoting()
+    const cart = await openCartWithSelection()
+    submitVotes.mockRejectedValueOnce(new Error(message))
+    await userEvent.click(within(cart).getByRole('button', { name: 'Submit' }))
+    const failure = await screen.findByRole('dialog', { name: 'Votes not submitted' })
+    expect(within(failure).getByRole('alert')).toHaveTextContent(message)
+    await userEvent.click(within(failure).getByRole('button', { name: 'Back to cart' }))
+    await waitFor(() => expect(failure).not.toBeInTheDocument())
     expect(within(cart).getByText('Customer Portal Renewal')).toBeInTheDocument()
-    await user.click(within(cart).getByRole('button', { name: 'Clear all' }))
-    expect(await within(cart).findByText('No votes yet')).toBeInTheDocument()
-    expect(within(cart).getByRole('button', { name: 'Clear all' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Vote, 2 votes' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    expect(await within(cart).findByText('Customer Portal Renewal')).toBeInTheDocument()
+    expect(within(cart).getByRole('button', { name: 'Submit' })).toBeEnabled()
+    expect(screen.queryByRole('dialog', { name: 'My voting records' })).not.toBeInTheDocument()
+    await mockSubmitted()
+    await userEvent.click(within(cart).getByRole('button', { name: 'Submit' }))
+    expect(await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })).toBeInTheDocument()
   })
 
-  it('reconciles saved votes and opens the cart with recovery instructions on a vote limit response', async () => {
-    const actor = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await screen.findByRole('button', { name: 'Vote, 2 votes' })
-    getIdeas.mockResolvedValueOnce({ content: [{
-      id: 'idea-1', title: 'Customer Portal Renewal', description: 'Previously saved nomination',
-      createdBy: 'user-1', category: 'Customer Values', tags: [], attachments: [], projectAttachments: [],
-      votes: 3, userHasVoted: true, status: 'submitted', createdAt: '', updatedAt: '',
-    }] })
-    voteIdea.mockRejectedValueOnce(new Error('Each participant can cast at most 4 votes per award category.'))
-    await actor.click(screen.getByRole('button', { name: 'Vote, 2 votes' }))
-    const feedback = await screen.findByRole('dialog', { name: 'Vote not saved' })
-    expect(within(feedback).getByRole('alert')).toHaveTextContent('Previous votes count too')
-    await actor.click(within(feedback).getByRole('button', { name: 'Confirm' }))
-    await waitFor(() => expect(feedback).not.toBeInTheDocument())
-    const cart = screen.getByRole('dialog', { name: 'My votes (1)' })
-    expect(within(cart).getByRole('alert')).toHaveStyle({ background: 'transparent' })
-    expect(await within(cart).findByRole('alert')).toHaveTextContent('Previous votes count too')
-    expect(await screen.findByRole('button', { name: 'Voted, 3 votes' })).toBeInTheDocument()
-    expect(within(cart).getByText(/Customer Values · 1\/4/)).toBeInTheDocument()
-    expect(within(cart).getByRole('button', { name: /Clear .* Customer Values votes/ })).toBeEnabled()
+  it('prevents repeat submission and cart edits while awaiting the server', async () => {
+    let resolve!: () => void
+    submitVotes.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    renderVoting()
+    const cart = await openCartWithSelection()
+    const submit = within(cart).getByRole('button', { name: 'Submit' })
+    await userEvent.dblClick(submit)
+    expect(submitVotes).toHaveBeenCalledTimes(1)
+    expect(within(cart).getByRole('button', { name: 'Clear all', hidden: true })).toBeDisabled()
+    const progress = screen.getByRole('dialog', { name: 'Submit votes' })
+    expect(within(progress).getByRole('status')).toHaveTextContent('Submitting your votes')
+    expect(document.querySelector('.dp-submit-animation')).toHaveAttribute('data-state', 'submitting')
+    await mockSubmitted()
+    resolve()
+    expect(await within(progress).findByRole('status')).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.dp-submit-animation')).toHaveAttribute('data-state', 'success'))
+    expect(await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })).toBeInTheDocument()
   })
 
-  it('clears only the selected award category and allows another vote', async () => {
-    const actor = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await actor.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    await actor.click(screen.getByRole('button', { name: 'My votes (1)' }))
-    const cart = screen.getByRole('dialog')
-    await actor.click(within(cart).getByRole('button', { name: /Clear .* Innovation Breakthrough votes/ }))
-    expect(clearTrackVotes).toHaveBeenCalledWith('hackathon-1', 'Innovation Breakthrough')
-    expect(await within(cart).findByText('No votes yet')).toBeInTheDocument()
-    await actor.click(screen.getByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    expect(await within(cart).findByText('Customer Portal Renewal')).toBeInTheDocument()
+  it('preserves drafts on remount and keeps account carts separate', async () => {
+    const page = renderVoting()
+    await openCartWithSelection()
+    page.unmount()
+    const remounted = renderVoting()
+    expect(await screen.findByRole('button', { name: 'My votes (1)' })).toBeInTheDocument()
+    remounted.unmount()
+    const previous = currentUser.id
+    currentUser.id = 'another-user'
+    renderVoting()
+    expect(await screen.findByRole('button', { name: 'My votes (0)' })).toBeInTheDocument()
+    currentUser.id = previous
   })
 
-  it('retains a vote and displays the rule when removal is rejected', async () => {
-    const user = userEvent.setup()
-    render(<MantineProvider env="test"><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
-    await user.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
-    await confirmSavedVote()
-    await user.click(screen.getByRole('button', { name: 'My votes (1)' }))
-    const cart = screen.getByRole('dialog')
-    voteIdea.mockRejectedValueOnce(new Error('Remove a same-department vote first.'))
-    await user.click(within(cart).getByRole('button', { name: 'Remove vote for Customer Portal Renewal' }))
-    const feedback = await screen.findByRole('dialog', { name: 'Vote not saved' })
-    expect(within(feedback).getByRole('alert')).toHaveTextContent('Remove a same-department vote first.')
-    await user.click(within(feedback).getByRole('button', { name: 'Confirm' }))
-    await waitFor(() => expect(feedback).not.toBeInTheDocument())
-    expect(await within(cart).findByRole('alert')).toHaveTextContent('Remove a same-department vote first.')
-    expect(within(cart).getByText('Customer Portal Renewal')).toBeInTheDocument()
-    expect(within(cart).getByRole('heading', { name: 'My votes (1)' })).toBeInTheDocument()
+  it.each(['Clear all', 'Clear Spring 2026 Hackathon Innovation Breakthrough votes', 'Remove Customer Portal Renewal from cart'])('clears drafts without deleting submitted database records: %s', async (button) => {
+    renderVoting()
+    const cart = await openCartWithSelection()
+    await userEvent.click(within(cart).getByRole('button', { name: button }))
+    expect(await within(cart).findByText('Your cart is empty.')).toBeInTheDocument()
+    expect(clearMyVotes).not.toHaveBeenCalled()
+    expect(clearTrackVotes).not.toHaveBeenCalled()
+    expect(deleteVoteRecord).not.toHaveBeenCalled()
+  })
+
+  it('requires irreversible deletion confirmation, supports cancel and retry, and allows a new selection', async () => {
+    await mockSubmitted()
+    renderVoting('/projects?view=voting-records')
+    const records = await screen.findByRole('dialog', { name: 'My voting records' }, { timeout: 2500 })
+    const remove = await within(records).findByRole('button', { name: 'Delete voting record for Customer Portal Renewal' })
+    await userEvent.click(remove)
+    let confirmation = await screen.findByRole('dialog', { name: 'Delete voting record?' })
+    expect(within(confirmation).getByText(/This action cannot be undone/)).toBeInTheDocument()
+    expect(deleteVoteRecord).not.toHaveBeenCalled()
+    await userEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(confirmation).not.toBeInTheDocument())
+    expect(within(records).getByText('Customer Portal Renewal')).toBeInTheDocument()
+    await userEvent.click(remove)
+    confirmation = await screen.findByRole('dialog', { name: 'Delete voting record?' })
+    deleteVoteRecord.mockRejectedValueOnce(new Error('Please try again.'))
+    await userEvent.click(within(confirmation).getByRole('button', { name: 'Delete permanently' }))
+    expect(await within(confirmation).findByRole('alert')).toHaveTextContent('Please try again.')
+    await userEvent.click(within(confirmation).getByRole('button', { name: 'Delete permanently' }))
+    expect(deleteVoteRecord).toHaveBeenLastCalledWith('idea-1')
+    expect(await within(records).findByText('No submitted votes yet.')).toBeInTheDocument()
+    await userEvent.click(within(records).getByRole('button', { name: 'Back to nominees' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Vote, 2 votes' }))
+    expect(screen.getByRole('button', { name: 'My votes (1)' })).toBeInTheDocument()
   })
 
   it('splits legacy combined tags into separate badges and filter options', async () => {

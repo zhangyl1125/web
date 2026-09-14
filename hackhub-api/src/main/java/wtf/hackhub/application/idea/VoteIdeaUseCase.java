@@ -86,6 +86,29 @@ public class VoteIdeaUseCase {
 		return new Result(true, count);
 	}
 
+	/** Commit a cart atomically. Retrying a submitted cart never toggles votes off. */
+	@Transactional
+	public void submit(List<UUID> ideaIds, UUID userId) {
+		if (ideaIds == null || ideaIds.isEmpty() || ideaIds.stream().anyMatch(java.util.Objects::isNull))
+			throw new IllegalArgumentException("Select at least one nominee before submitting.");
+		var ids = ideaIds.stream().distinct().sorted().toList();
+		// Match the nomination mutation lock order before taking the voter lock.
+		ids.forEach(mutationLock::acquire);
+		profileRepository.findByIdForUpdate(userId).orElseThrow(() -> new ParticipantNotEligibleException(userId));
+		for (UUID id : ids) {
+			if (voteRepository.findByIdeaIdAndUserId(id, userId).isEmpty())
+				execute(id, userId);
+		}
+	}
+
+	/** Delete only this user's record; repeating a deletion cannot create a vote. */
+	@Transactional
+	public void deleteRecord(UUID ideaId, UUID userId) {
+		mutationLock.acquire(ideaId);
+		profileRepository.findByIdForUpdate(userId).orElseThrow(() -> new ParticipantNotEligibleException(userId));
+		voteRepository.findByIdeaIdAndUserId(ideaId, userId).ifPresent(voteRepository::delete);
+	}
+
 	/**
 	 * Explicitly reset a user's track, including invalid ballots left by older
 	 * rules.

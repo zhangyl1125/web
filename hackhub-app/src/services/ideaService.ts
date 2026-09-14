@@ -145,6 +145,14 @@ export class IdeaService {
     return api.post(`/api/v1/ideas/${ideaId}/votes`)
   }
 
+  static async submitVotes(ideaIds: string[]): Promise<void> {
+    return api.post('/api/v1/me/votes', { ideaIds })
+  }
+
+  static async deleteVoteRecord(ideaId: string): Promise<void> {
+    return api.delete(`/api/v1/me/votes/${ideaId}`)
+  }
+
   static async clearMyVotes(): Promise<void> {
     return api.delete('/api/v1/me/votes')
   }

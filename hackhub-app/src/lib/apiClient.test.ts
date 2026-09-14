@@ -112,18 +112,28 @@ describe('api client', () => {
     expect(events).toContain('fired')
   })
 
-  it('401 with refresh ok but retry non-ok clears token and dispatches session-expired', async () => {
+  it.each([403, 422, 500])('keeps the refreshed session when submission returns %s and exposes the actual error', async (status) => {
     tokenStore.setAccessToken('expired-token')
-    const events: string[] = []
-    window.addEventListener('auth:session-expired', () => events.push('fired'))
+    const expired = vi.fn()
+    window.addEventListener('auth:session-expired', expired)
+    fetchMock.mockResolvedValueOnce(emptyResponse(401))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accessToken: 'new-token' }))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ title: 'Vote rejected', detail: 'At most 2 votes per department.' }, status))
+    await expect(api.post('/api/v1/me/votes', { ideaIds: ['nominee-1'] })).rejects.toMatchObject({
+      status, message: 'At most 2 votes per department.',
+    })
+    expect(tokenStore.getAccessToken()).toBe('new-token')
+    expect(expired).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls[2][1].body).toBe(JSON.stringify({ ideaIds: ['nominee-1'] }))
+    window.removeEventListener('auth:session-expired', expired)
+  })
 
-    fetchMock.mockResolvedValueOnce(emptyResponse(401))                       // original
-    fetchMock.mockResolvedValueOnce(jsonResponse({ accessToken: 'new-tok' })) // refresh ok
-    fetchMock.mockResolvedValueOnce(emptyResponse(403))                       // retry fails
-
-    await expect(api.get('/api/v1/secure')).rejects.toMatchObject({ status: 401 })
+  it('expires the session if the retry is still unauthorized', async () => {
+    tokenStore.setAccessToken('expired-token')
+    fetchMock.mockResolvedValueOnce(emptyResponse(401))
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accessToken: 'new-token' }))
+    fetchMock.mockResolvedValueOnce(emptyResponse(401))
+    await expect(api.post('/api/v1/me/votes', { ideaIds: ['nominee-1'] })).rejects.toMatchObject({ status: 401 })
     expect(tokenStore.hasToken()).toBe(false)
-    expect(events).toContain('fired')
-    window.removeEventListener('auth:session-expired', () => {})
   })
 })

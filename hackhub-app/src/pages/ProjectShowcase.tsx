@@ -45,7 +45,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useLanguage } from '../contexts/LanguageContext'
-import { translateUiText } from '../contexts/uiTranslations'
 import { notifications } from '@mantine/notifications'
 import { getAllPages } from '../services/pagination'
 import { api, ApiError } from '../lib/apiClient'
@@ -156,11 +155,36 @@ function nominationSummary(description: string) {
     ?? sections.find((section) => !section.heading)?.body ?? ''
 }
 
+function readVotingCart(userId: string | undefined): { userId: string | undefined; ids: string[] } {
+  try {
+    const stored: unknown = userId ? JSON.parse(localStorage.getItem(`award-voting-cart-v1:${userId}`) ?? '[]') : []
+    return { userId, ids: Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [] }
+  } catch {
+    return { userId, ids: [] }
+  }
+}
+
 export function ProjectShowcase({ nominationMode = false, managementMode = false }: { nominationMode?: boolean; managementMode?: boolean }) {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const { language } = useLanguage()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [cart, setCart] = useState(() => readVotingCart(user?.id))
+  const cartIds = useMemo(() => new Set(cart.userId === user?.id ? cart.ids : []), [cart, user?.id])
+  const [submitting, setSubmitting] = useState(false)
+  const [submissionState, setSubmissionState] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
+  const [recordToDelete, setRecordToDelete] = useState<Project | null>(null)
+  const [deletingRecord, setDeletingRecord] = useState(false)
+  const [recordError, setRecordError] = useState<string | null>(null)
+  const ballotBusy = useRef(false)
+  const recordsOpened = searchParams.get('view') === 'voting-records'
+  const closeVotingRecords = () => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('view')
+      return next
+    }, { replace: true })
+  }
   const nomineeToOpen = searchParams.get('nominee')
   const canNominate = user?.role === 'admin' || user?.role === 'manager'
   const canDelete = managementMode && user?.role === 'admin'
@@ -176,8 +200,6 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
   const [loadError, setLoadError] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
-  const [confirmClearVotes, setConfirmClearVotes] = useState(false)
-  const [clearingVotes, setClearingVotes] = useState(false)
   const [cartOpened, setCartOpened] = useState(false)
   const closeVoteCart = () => {
     setCartOpened(false)
@@ -187,14 +209,10 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
     })
   }
   const [voteError, setVoteError] = useState<string | null>(null)
-  const [voteFeedback, setVoteFeedback] = useState<{ error: boolean; message: string } | null>(null)
-  const voteRequests = useRef(new Set<string>())
-  const clearingVotesRef = useRef(false)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [modalOpened, setModalOpened] = useState(false)
   const [nominees, setNominees] = useState<Array<{ id: string; name: string; email: string }>>([])
   const [nomineeLoadError, setNomineeLoadError] = useState(false)
-  const [votingIds, setVotingIds] = useState<Set<string>>(new Set())
   const [uploading, setUploading] = useState(false)
   const [hackathons, setHackathons] = useState<AwardSummary[]>([])
   const [projectImage, setProjectImage] = useState<File | null>(null)
@@ -304,6 +322,10 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
   }, [user])
 
   useEffect(() => {
+    setCart(readVotingCart(user?.id))
+    setRecordToDelete(null)
+    setSubmissionState('idle')
+    setRecordError(null)
     setProjects([])
     setAssignedJudgeHackathons(new Set())
     setNominees([])
@@ -314,14 +336,22 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
     setModalOpened(false)
     setCartOpened(false)
     setVoteError(null)
-    setVoteFeedback(null)
     setSelectedIds(new Set())
     setPendingDeletion([])
     setDeleteError(null)
     setDeleteSuccess(null)
     void loadProjects()
     return () => { loadSequence.current += 1 }
-  }, [loadProjects])
+  }, [loadProjects, user?.id])
+
+  useEffect(() => {
+    if (!cart.userId || cart.userId !== user?.id) return
+    try {
+      localStorage.setItem(`award-voting-cart-v1:${cart.userId}`, JSON.stringify(cart.ids))
+    } catch {
+      // The cart remains usable in memory when browser storage is unavailable.
+    }
+  }, [cart, user?.id])
 
   useEffect(() => {
     if (!nominationMode || !user || user.role === 'participant') return
@@ -427,61 +457,99 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
     }
   }
 
-  const handleVote = async (projectId: string) => {
+  const showVotingRecords = () => {
+    setCartOpened(false)
+    setModalOpened(false)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('view', 'voting-records')
+      return next
+    })
+  }
+
+  const handleVote = (projectId: string) => {
     if (!user) {
       navigate(`/login?redirect=${encodeURIComponent(`/projects?nominee=${projectId}`)}`)
       return
     }
-
-    if (voteRequests.current.has(projectId) || clearingVotesRef.current) return
-    voteRequests.current.add(projectId)
-    const sequence = loadSequence.current
+    if (ballotBusy.current || loading || loadError) return
+    const project = projects.find((item) => item.id === projectId)
+    if (!project) return
+    if (project.user_vote) {
+      showVotingRecords()
+      return
+    }
     setVoteError(null)
-    setVotingIds((current) => new Set(current).add(projectId))
-    try {
-      const result = await IdeaService.voteIdea(projectId)
-      if (sequence !== loadSequence.current) return
-      setProjects(prev => prev.map(project => {
-        if (project.id === projectId) {
-          return {
-            ...project,
-            user_vote: result.voted,
-            votes: result.voteCount,
-          }
-        }
-        return project
-      }))
-      setSelectedProject((project) => project?.id === projectId
-        ? { ...project, user_vote: result.voted, votes: result.voteCount }
-        : project)
+    setCart((current) => {
+      const ids = current.userId === user.id ? current.ids : []
+      return { userId: user.id, ids: ids.includes(projectId) ? ids.filter((id) => id !== projectId) : [...ids, projectId] }
+    })
+  }
 
-      if (result.voted) {
-        setVoteFeedback({
-          error: false,
-          message: language === 'zh' ? '投票已保存，感谢您的参与！' : 'Your vote has been saved. Thank you for voting!',
-        })
-      } else if (!cartOpened) notifications.show({
-        title: 'Vote Removed', message: 'Your vote has been removed', color: 'green',
-      })
+  const submitCart = async () => {
+    if (!user || ballotBusy.current || loading || loadError) return
+    const ids = projects.filter((project) => cartIds.has(project.id) && !project.user_vote).map((project) => project.id)
+    if (!ids.length) return
+    const sequence = loadSequence.current
+    ballotBusy.current = true
+    setSubmitting(true)
+    setSubmissionState('submitting')
+    setVoteError(null)
+    try {
+      // Keep the progress ring visible long enough to avoid a flash on fast responses.
+      const [result] = await Promise.allSettled([
+        IdeaService.submitVotes(ids),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 400)),
+      ])
+      if (result.status === 'rejected') throw result.reason
+      if (sequence !== loadSequence.current) return
+      setCart({ userId: user.id, ids: [] })
+      setProjects((current) => current.map((project) => ids.includes(project.id)
+        ? { ...project, user_vote: true, votes: project.votes + 1 } : project))
+      setSubmissionState('success')
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 500))
+      if (sequence !== loadSequence.current) return
+      setSubmissionState('idle')
+      showVotingRecords()
+      await loadProjects()
     } catch (error) {
       if (sequence !== loadSequence.current) return
-      const message = error instanceof Error ? error.message : 'Failed to record vote'
-      const limit = message.match(/Each participant can cast at most (\d+) votes per award category\.?/i)
-      const displayMessage = limit
-        ? language === 'zh'
-          ? `此奖项的当前赛道已保留 ${limit[1]} 票。之前的点赞也计入额度；请在“我的点赞”中撤回一票，或清空该赛道后重新选择。`
-          : `You already have ${limit[1]} saved votes in this award category. Previous votes count too. Remove a vote in My votes, or clear this category to choose again.`
-        : language === 'zh' ? translateUiText(message) : message
-      setVoteError(displayMessage)
-      setVoteFeedback({ error: true, message: displayMessage })
-      if (limit) {
-        setCartOpened(true)
-        // Reconcile saved votes, including changes made in another tab/session.
-        await loadProjects()
-      }
+      const message = error instanceof ApiError && error.status === 401
+        ? 'Your session has expired. Sign in again to submit your cart.'
+        : error instanceof ApiError && (error.status === 404 || error.status === 405)
+          ? 'The submission service is unavailable. Please try again after the service has been updated.'
+          : error instanceof Error ? error.message : 'Unable to submit your votes. Please try again.'
+      setVoteError(message)
+      setSubmissionState('error')
     } finally {
-      voteRequests.current.delete(projectId)
-      setVotingIds((current) => { const next = new Set(current); next.delete(projectId); return next })
+      ballotBusy.current = false
+      setSubmitting(false)
+    }
+  }
+
+  const deleteVotingRecord = async () => {
+    if (!user || !recordToDelete || ballotBusy.current) return
+    const sequence = loadSequence.current
+    const id = recordToDelete.id
+    ballotBusy.current = true
+    setDeletingRecord(true)
+    setRecordError(null)
+    try {
+      await IdeaService.deleteVoteRecord(id)
+      if (sequence !== loadSequence.current) return
+      setProjects((current) => current.map((project) => project.id === id
+        ? { ...project, user_vote: false, votes: Math.max(0, project.votes - 1) } : project))
+      setSelectedProject((project) => project?.id === id
+        ? { ...project, user_vote: false, votes: Math.max(0, project.votes - 1) } : project)
+      setCart((current) => ({ ...current, ids: current.ids.filter((item) => item !== id) }))
+      setRecordToDelete(null)
+      await loadProjects()
+    } catch (error) {
+      if (sequence !== loadSequence.current) return
+      setRecordError(error instanceof Error ? error.message : 'Unable to delete your voting record. Please try again.')
+    } finally {
+      ballotBusy.current = false
+      setDeletingRecord(false)
     }
   }
 
@@ -510,7 +578,8 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
     })
   }, [projects, filters])
 
-  const votedProjects = projects.filter((project) => project.user_vote)
+  const submittedProjects = projects.filter((project) => project.user_vote)
+  const votedProjects = projects.filter((project) => cartIds.has(project.id) && !project.user_vote)
   const departments = useMemo(
     () => [...new Set(projects.map((project) => project.nominee_org_code.split('-')[0]).filter(Boolean))].sort(),
     [projects]
@@ -519,46 +588,20 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
     (track) => track.value === uploadForm.category
   )
 
-  const clearAllVotes = async () => {
-    if (!user || clearingVotesRef.current || voteRequests.current.size > 0) return
-    clearingVotesRef.current = true
-    setClearingVotes(true)
+  const clearAllVotes = () => {
+    if (!user || ballotBusy.current) return
+    setCart({ userId: user.id, ids: [] })
     setVoteError(null)
-    try {
-      await IdeaService.clearMyVotes()
-      setProjects((current) => current.map((project) => project.user_vote
-        ? { ...project, user_vote: false, votes: Math.max(0, project.votes - 1) }
-        : project))
-      setSelectedProject((project) => project?.user_vote
-        ? { ...project, user_vote: false, votes: Math.max(0, project.votes - 1) }
-        : project)
-    } catch (cause) {
-      setVoteError(cause instanceof Error ? cause.message : 'Unable to clear votes. Please try again.')
-    } finally {
-      clearingVotesRef.current = false
-      setClearingVotes(false)
-    }
   }
 
-  const clearTrackVotes = async (awardId = selectedProject?.hackathon_id, category = selectedProject?.category) => {
-    if (!awardId || !category || clearingVotesRef.current || voteRequests.current.size > 0) return
-    clearingVotesRef.current = true
-    setClearingVotes(true)
-    try {
-      await IdeaService.clearTrackVotes(awardId, category)
-      await loadProjects()
-      setModalOpened(false)
-      setConfirmClearVotes(false)
-      setVoteError(null)
-      if (!cartOpened) notifications.show({ title: 'Votes reset', message: 'You can now select nominees again.', color: 'teal' })
-    } catch {
-      setVoteError(language === 'zh' ? '清空赛道失败，请重试。' : 'Unable to clear this category. Please try again.')
-      if (!cartOpened) notifications.show({ title: 'Error', message: 'Unable to save changes. Please try again.', color: 'red' })
-    } finally { clearingVotesRef.current = false; setClearingVotes(false) }
+  const clearTrackVotes = (awardId: string, category: string) => {
+    if (ballotBusy.current) return
+    const ids = new Set(projects.filter((project) => project.hackathon_id === awardId && project.category === category).map((project) => project.id))
+    setCart((current) => ({ ...current, ids: current.ids.filter((id) => !ids.has(id)) }))
+    setVoteError(null)
   }
 
   const openProjectModal = (project: Project) => {
-    setConfirmClearVotes(false)
     setSelectedProject(project)
     setModalOpened(true)
     if (user?.role === 'participant' && !assignedJudgeHackathons.has(project.hackathon_id)) {
@@ -816,9 +859,9 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
         {user && !canDelete && <details className="dp-voting-rules">
           <summary>{language === 'zh' ? '查看投票规则' : 'Voting rules'}</summary>
           <ul>
-            <li>{language === 'zh' ? '每人每赛道最多4票，各赛道独立计算；每位候选人最多1票，再次点击即可取消。' : 'Up to 4 votes per person per category. Each nominee receives at most one of your votes; click again to remove it.'}</li>
+            <li>{language === 'zh' ? '每人每赛道最多4票，各赛道独立计算；每位候选人最多1票，再次点击即可取消。' : 'Up to 4 votes per person per category. Each nominee receives at most one of your votes; add your selections to the cart, then click Submit.'}</li>
             <li>{language === 'zh' ? '本部门最多2票，其他部门合计最多2票；两组额度独立，均可投0、1或2票。' : 'Up to 2 votes for your department and up to 2 votes in total for other departments. Each allowance is independent and may be used for 0, 1 or 2 votes.'}</li>
-            <li>{language === 'zh' ? '每赛道可投0–4票，无需投满；投票和撤票均不限制先后顺序。' : 'You may cast 0–4 votes per category. You do not have to use all votes, and may vote or withdraw in any order.'}</li>
+            <li>{language === 'zh' ? '每赛道可投0–4票，无需投满；投票和撤票均不限制先后顺序。' : 'You may cast 0–4 votes per category. You do not have to use all votes, and may submit or delete voting records in any order.'}</li>
             <li>{language === 'zh' ? '投票账号和候选人须能唯一匹配BD名册，部门按Org.code中“-”前的部分识别，例如BD/DPA-SRE3属于BD/DPA。' : 'Voters and nominees must uniquely match the BD roster. Department is the Org.code prefix before “-”, e.g. BD/DPA-SRE3 belongs to BD/DPA.'}</li>
           </ul>
         </details>}
@@ -916,7 +959,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
               <Card
                 key={project.id}
                 className="dp-project-card"
-                data-voted={project.user_vote ? 'true' : undefined}
+                data-voted={project.user_vote || cartIds.has(project.id) ? 'true' : undefined}
                 p={0}
               >
                 <div className="dp-candidate-layout">
@@ -1006,18 +1049,17 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                       {language === 'zh' ? '删除' : 'Delete'}
                     </Button> : <Button
                       className="dp-vote-button"
-                      loading={votingIds.has(project.id)}
-                      disabled={clearingVotes}
-                      data-voted={project.user_vote ? 'true' : 'false'}
-                      variant={project.user_vote ? 'filled' : 'default'}
+                      disabled={submitting || deletingRecord}
+                      data-voted={project.user_vote || cartIds.has(project.id) ? 'true' : 'false'}
+                      variant={project.user_vote || cartIds.has(project.id) ? 'filled' : 'default'}
                       leftSection={project.user_vote ? <IconThumbUpFilled size={16} /> : <IconThumbUp size={16} />}
-                      aria-label={project.user_vote ? `Voted, ${project.votes} votes` : `Vote, ${project.votes} votes`}
+                      aria-label={project.user_vote ? `Submitted, ${project.votes} votes` : cartIds.has(project.id) ? `In cart, ${project.votes} votes` : `Vote, ${project.votes} votes`}
                       onClick={(event) => {
                         event.stopPropagation()
                         void handleVote(project.id)
                       }}
                     >
-                      {project.user_vote ? 'Voted' : 'Vote'} ({project.votes})
+                      {project.user_vote ? 'Submitted' : cartIds.has(project.id) ? 'In cart' : 'Vote'} ({project.votes})
                     </Button>}
                   </Group>
                   </div>
@@ -1068,11 +1110,14 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
             }
           }}
         >
-          <Group className="dp-vote-cart-header" justify="space-between" wrap="nowrap">
+          <Group className="dp-vote-cart-header" justify="space-between" wrap="nowrap" gap={6}>
             <Title order={2} size="h4" id="vote-cart-title" aria-live="polite">{language === 'zh' ? `我的点赞（${votedProjects.length}）` : `My votes (${votedProjects.length})`}</Title>
+            <Button size="compact-xs" variant="light" loading={submitting} style={{ flexShrink: 0 }}
+              disabled={!user || loading || loadError || deletingRecord || !votedProjects.length}
+              onClick={() => void submitCart()}>Submit</Button>
             <Group gap={4} wrap="nowrap">
-            <Button variant="subtle" color="red" c="#ffb1b1" size="compact-xs" loading={clearingVotes}
-              disabled={!votedProjects.length || votingIds.size > 0 || loading}
+            <Button variant="subtle" color="red" c="#ffb1b1" size="compact-xs"
+              disabled={!votedProjects.length || submitting || deletingRecord || loading}
               leftSection={<IconTrash size={14} />} onClick={() => void clearAllVotes()}>
               {language === 'zh' ? '一键清空' : 'Clear all'}
             </Button>
@@ -1081,7 +1126,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
           </Group>
           <div className="dp-vote-cart-body">
           <Stack gap="md">
-            <Text size="sm" c="dimmed">{language === 'zh' ? '点赞后自动保存，可继续浏览候选人并点赞。每赛道最多4票：本部门和其他部门各最多2票，均可少投或不投。' : 'Votes are saved immediately. Keep browsing and voting alongside this panel. Up to 4 votes per category: up to 2 for your department and 2 for other departments. Either allowance may be partly or entirely unused.'}</Text>
+            <Text size="sm" c="dimmed">{language === 'zh' ? '点赞后自动保存，可继续浏览候选人并点赞。每赛道最多4票：本部门和其他部门各最多2票，均可少投或不投。' : 'Selections stay in your cart until you click Submit. Submitted votes are available in My voting records from your account menu. Up to 4 votes per category: up to 2 for your department and 2 for other departments. Either allowance may be partly or entirely unused.'}</Text>
             {voteError && <Alert color="red" styles={{ root: { background: 'transparent' }, message: { color: '#fff' } }} role="alert">{voteError}</Alert>}
             {user && !loading && !loadError && hackathons.filter((award) => projects.some((project) => project.hackathon_id === award.id)).map((award) => (
               <section key={award.id} className="dp-ballot-summary" aria-label={language === 'zh' ? `${award.title} 已投票数` : `Saved votes for ${award.title}`}>
@@ -1090,7 +1135,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                   const count = votedProjects.filter((project) => project.hackathon_id === award.id && project.category === track.value).length
                   return <Group key={track.value} justify="space-between" wrap="nowrap" gap="xs" mt="xs">
                     <Text size="xs">{language === 'zh' ? track.labelZh : track.label} · {count}/{DIGITAL_PIONEER_VOTING_RULES.votesPerTrack}</Text>
-                    <Button variant="subtle" size="compact-xs" c="#c9d8ee" disabled={!count || clearingVotes || votingIds.size > 0}
+                    <Button variant="subtle" size="compact-xs" c="#c9d8ee" disabled={!count || submitting || deletingRecord}
                       aria-label={language === 'zh' ? `清空 ${award.title} ${track.labelZh} 点赞` : `Clear ${award.title} ${track.label} votes`}
                       onClick={() => void clearTrackVotes(award.id, track.value)}>
                       {language === 'zh' ? '清空本赛道' : 'Clear category'}
@@ -1112,7 +1157,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
             ) : votedProjects.length === 0 ? (
               <Stack align="center" py="xl">
                 <IconThumbUp size={40} />
-                <Text>{language === 'zh' ? '还没有点赞的候选人' : 'No votes yet'}</Text>
+                <Text>Your cart is empty.</Text>
                 <Button variant="light" onClick={closeVoteCart}>{language === 'zh' ? '继续浏览候选人' : 'Browse nominees'}</Button>
               </Stack>
             ) : votedProjects.map((project) => (
@@ -1134,11 +1179,10 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                     c="#ffb1b1"
                     size="xs"
                     leftSection={<IconTrash size={15} />}
-                    loading={votingIds.has(project.id)}
-                      disabled={clearingVotes}
-                    aria-label={language === 'zh' ? `取消点赞 ${project.title}` : `Remove vote for ${project.title}`}
+                    disabled={submitting || deletingRecord}
+                    aria-label={`Remove ${project.title} from cart`}
                     onClick={() => void handleVote(project.id)}
-                  >{language === 'zh' ? '取消点赞' : 'Remove vote'}</Button>
+                  >Remove from cart</Button>
                 </Group>
               </div>
             ))}
@@ -1146,20 +1190,83 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
           </div>
         </section>}
 
-        <Modal
-          opened={voteFeedback !== null}
-          onClose={() => setVoteFeedback(null)}
-          title={voteFeedback?.error ? (language === 'zh' ? '投票未完成' : 'Vote not saved') : (language === 'zh' ? '投票成功' : 'Vote saved')}
-          centered
-          zIndex={300}
-          closeOnClickOutside={false}
-          closeOnEscape={false}
-          withCloseButton={false}
-          classNames={{ content: 'dp-candidate-modal', header: 'dp-candidate-modal-header' }}
-        >
+        <Modal opened={submissionState !== 'idle'} zIndex={400} centered size="sm"
+          title={submissionState === 'error' ? 'Votes not submitted' : 'Submit votes'}
+          onClose={() => { if (submissionState === 'error') setSubmissionState('idle') }}
+          closeOnClickOutside={false} closeOnEscape={submissionState === 'error'}
+          withCloseButton={submissionState === 'error'}
+          classNames={{ content: 'dp-submit-feedback', header: 'dp-submit-feedback-header' }}>
+          <Stack align="center" gap="md" py="md">
+            {submissionState !== 'error' ? <>
+              <div className="dp-submit-animation" data-state={submissionState} aria-hidden="true">
+                <svg viewBox="0 0 80 80" fill="none">
+                  <circle className="dp-submit-ring-track" cx="40" cy="40" r="32" />
+                  <circle className="dp-submit-ring" cx="40" cy="40" r="32" />
+                  {submissionState === 'success' && <path className="dp-submit-check" d="M25 40l10 10 21-22" />}
+                </svg>
+              </div>
+              <Text role="status" fw={600}>{submissionState === 'success' ? 'Votes submitted' : 'Submitting your votes…'}</Text>
+              <Text size="sm" ta="center">{submissionState === 'success' ? 'Opening your voting records…' : 'Please wait while your votes are saved.'}</Text>
+            </> : <>
+              <Alert color="red" role="alert" w="100%"
+                styles={{ root: { backgroundColor: 'transparent' }, message: { color: '#fff', fontWeight: 700 } }}>{voteError}</Alert>
+              <Text size="sm" ta="center">Your cart has been kept. Review the message above before trying again.</Text>
+              <Group justify="center">
+                <Button variant="light" onClick={() => {
+                  setSubmissionState('idle')
+                  setCartOpened(true)
+                  document.querySelector('.dp-vote-cart-body')?.scrollTo({ top: 0, behavior: 'smooth' })
+                }}>Back to cart</Button>
+                <Button variant="subtle" onClick={() => { setSubmissionState('idle'); showVotingRecords() }}>My voting records</Button>
+              </Group>
+            </>}
+          </Stack>
+        </Modal>
+
+        <Modal opened={recordsOpened} zIndex={310} onClose={closeVotingRecords} title="My voting records" size="lg" centered>
           <Stack>
-            <Text role={voteFeedback?.error ? 'alert' : 'status'}>{voteFeedback?.message}</Text>
-            <Button onClick={() => setVoteFeedback(null)}>{language === 'zh' ? '确认' : 'Confirm'}</Button>
+            {!user ? <Text>Sign in to view your voting records.</Text>
+              : loading ? <Text role="status">Loading voting records…</Text>
+              : loadError ? <Alert color="red" title="Unable to load voting records">
+                <Button variant="subtle" onClick={() => void loadProjects()}>Retry</Button>
+              </Alert>
+              : <>
+                <Text role="status">Your submitted votes are saved to the database. You can view them here anytime from your account menu.</Text>
+                <Text size="sm" c="dimmed">To change a submitted vote, delete its record, then add your new selection to the cart and submit again.</Text>
+                {submittedProjects.length === 0 ? <Text>No submitted votes yet.</Text> : submittedProjects.map((project) => (
+                  <Card key={project.id} withBorder>
+                    <Group justify="space-between" wrap="nowrap" mb="sm">
+                      <Avatar src={project.images[0]} alt={project.nominee_name} size={48} radius="md"><IconUser /></Avatar>
+                      <Button color="red" variant="light" size="xs" leftSection={<IconTrash size={14} />}
+                        aria-label={`Delete voting record for ${project.title}`} disabled={deletingRecord || submitting}
+                        onClick={() => { setRecordError(null); setRecordToDelete(project) }}>Delete</Button>
+                    </Group>
+                    <Stack gap={4} style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                      <Text fw={700} translate="no">{project.title}</Text>
+                      {project.nominee_name !== project.title && <Text size="sm" translate="no">{project.nominee_name}</Text>}
+                      <Text size="sm">{hackathons.find((award) => award.id === project.hackathon_id)?.title}</Text>
+                      <Text size="sm">{DIGITAL_PIONEER_TRACKS.find((track) => track.value === project.category)?.label ?? project.category}</Text>
+                      <Text size="sm">Department: <span translate="no">{project.nominee_org_code.split('-')[0] || '—'}</span></Text>
+                      <Button variant="subtle" size="xs" onClick={() => { closeVotingRecords(); openProjectModal(project) }}>View details</Button>
+                    </Stack>
+                  </Card>
+                ))}
+              </>}
+            <Button variant="light" onClick={closeVotingRecords}>Back to nominees</Button>
+          </Stack>
+        </Modal>
+
+        <Modal opened={recordToDelete !== null} onClose={() => { if (!deletingRecord) setRecordToDelete(null) }}
+          title="Delete voting record?" centered zIndex={310} closeOnClickOutside={!deletingRecord}
+          closeOnEscape={!deletingRecord} withCloseButton={!deletingRecord}>
+          <Stack>
+            <Text>Delete your submitted vote for <span translate="no">{recordToDelete?.title}</span>? This action cannot be undone.</Text>
+            <Text size="sm" c="dimmed">You can select a nominee and submit a new vote after deleting this record.</Text>
+            {recordError && <Alert color="red" role="alert">{recordError}</Alert>}
+            <Group justify="flex-end">
+              <Button variant="default" disabled={deletingRecord} onClick={() => setRecordToDelete(null)}>Cancel</Button>
+              <Button color="red" loading={deletingRecord} onClick={() => void deleteVotingRecord()}>Delete permanently</Button>
+            </Group>
           </Stack>
         </Modal>
 
@@ -1192,9 +1299,6 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
         <Modal
           opened={modalOpened}
           onClose={() => setModalOpened(false)}
-          closeOnEscape={voteFeedback === null}
-          closeOnClickOutside={voteFeedback === null}
-          trapFocus={voteFeedback === null}
           title={selectedProject?.title}
           size="xl"
           classNames={{ content: 'dp-candidate-modal', header: 'dp-candidate-modal-header' }}
@@ -1297,24 +1401,16 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
             {/* Vote Button */}
             <Button
               fullWidth
-              loading={votingIds.has(selectedProject.id)}
+              disabled={submitting || deletingRecord || loading}
               leftSection={selectedProject.user_vote ? <IconThumbUpFilled size={16} /> : <IconThumbUp size={16} />}
               variant={selectedProject.user_vote ? 'filled' : 'light'}
               color="red"
               onClick={() => handleVote(selectedProject.id)}
             >
-              {selectedProject.user_vote ? 'Voted' : 'Vote'} ({selectedProject.votes})
+              {selectedProject.user_vote ? 'View voting record' : cartIds.has(selectedProject.id) ? 'Remove from cart' : 'Add to cart'} ({selectedProject.votes})
             </Button>
 
-            {user && (confirmClearVotes ? (
-              <Stack gap="xs">
-                <Text size="sm">Reset all your votes in this track?</Text>
-                <Group justify="flex-end">
-                  <Button variant="subtle" disabled={clearingVotes} onClick={() => setConfirmClearVotes(false)}>Cancel</Button>
-                  <Button color="red" loading={clearingVotes} onClick={() => void clearTrackVotes()}>Reset votes</Button>
-                </Group>
-              </Stack>
-            ) : <Button variant="subtle" color="gray" onClick={() => setConfirmClearVotes(true)}>Reset my track votes</Button>)}
+
 
           </Stack>
         )}

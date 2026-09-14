@@ -27,7 +27,7 @@ interface HeaderProps {
 export function Header({ opened, toggle }: HeaderProps) {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
-  const { language, toggleLanguage, t } = useLanguage()
+  const { language, t } = useLanguage()
 
   const roleLabel = !user
     ? ''
@@ -57,17 +57,7 @@ export function Header({ opened, toggle }: HeaderProps) {
       <Box className="dp-header-navigation"><Sidebar horizontal /></Box>
 
       <Group className="dp-header-actions" gap={8}>
-        <UnstyledButton
-          className="dp-language-switch"
-          onClick={toggleLanguage}
-          aria-label={language === 'zh' ? '切换到英文' : 'Switch to Chinese'}
-        >
-          <Text size="sm" fw={600}>
-            {language === 'zh' ? '中' : 'EN'}
-          </Text>
-        </UnstyledButton>
-
-        <Menu shadow="md" width={200}>
+        <Menu shadow="md" zIndex={350} width={200}>
           <Menu.Target>
             <UnstyledButton className="dp-user-button" aria-label={user?.name || t('header.account')}>
               <Group gap="sm">
@@ -94,6 +84,7 @@ export function Header({ opened, toggle }: HeaderProps) {
             >
               {t('header.profile')}
             </Menu.Item>
+            {user && <Menu.Item onClick={() => navigate('/projects?view=voting-records')}>My voting records</Menu.Item>}
             <Menu.Divider />
 
             <Menu.Item

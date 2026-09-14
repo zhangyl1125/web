@@ -21,9 +21,9 @@ beforeEach(() => {
 describe('LandingPage', () => {
   it('opens all three sections without a login gate and embeds overview below the hero', () => {
     renderPage()
-    expect(screen.getByRole('link', { name: '概览' })).toHaveAttribute('href', '/#overview')
-    expect(screen.getByRole('link', { name: '个人报名' })).toHaveAttribute('href', '/nominate')
-    expect(screen.getByRole('link', { name: '浏览与投票' })).toHaveAttribute('href', '/projects')
+    expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/#overview')
+    expect(screen.getByRole('link', { name: 'Nomination' })).toHaveAttribute('href', '/nominate')
+    expect(screen.getByRole('link', { name: 'Browse & Vote' })).toHaveAttribute('href', '/projects')
     expect(screen.getByRole('link', { name: /Get Started/ })).toHaveAttribute('href', '/#overview')
     fireEvent.click(screen.getByRole('link', { name: /Get Started/ }))
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth' })
@@ -33,7 +33,7 @@ describe('LandingPage', () => {
 
   it('marks the selected module and hides the home hero on module routes', () => {
     renderPage('/projects')
-    expect(screen.getByRole('link', { name: '浏览与投票' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Browse & Vote' })).toHaveAttribute('aria-current', 'page')
     expect(screen.queryByRole('heading', { name: '2026 BDCN Digital Pioneer Award' })).not.toBeInTheDocument()
   })
 
@@ -43,11 +43,13 @@ describe('LandingPage', () => {
     state.user = { id: 'u1', name: 'Associate', role }
     state.judge = judge
     renderPage()
+    expect(screen.queryByRole('button', { name: /Switch to Chinese|切换到英文/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Associate' }))
-    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: /评选管理|组委会评分/ }))).toBe(visible))
-    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: '用户管理' }))).toBe(role === 'admin'))
-    expect(Boolean(screen.queryByRole('menuitem', { name: '提名管理' }))).toBe(role === 'admin')
-    if (role === 'admin') expect(screen.getByRole('menuitem', { name: '提名管理' })).toHaveAttribute('href', '/admin/nominees')
+    expect(await screen.findByRole('menuitem', { name: 'My voting records' })).toHaveAttribute('href', '/projects?view=voting-records')
+    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: /Award management|Committee scoring/ }))).toBe(visible))
+    await waitFor(() => expect(Boolean(screen.queryByRole('menuitem', { name: 'Manage Users' }))).toBe(role === 'admin'))
+    expect(Boolean(screen.queryByRole('menuitem', { name: 'Manage nominees' }))).toBe(role === 'admin')
+    if (role === 'admin') expect(screen.getByRole('menuitem', { name: 'Manage nominees' })).toHaveAttribute('href', '/admin/nominees')
   })
 
   it('retains the reference background with immediate poster and loaded video', () => {

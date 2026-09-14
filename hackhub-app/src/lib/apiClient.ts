@@ -43,7 +43,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (token) headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
+  let response = await fetch(`${BASE_URL}${path}`, {
     ...rest,
     headers,
     credentials: 'include', // send refresh token cookie
@@ -55,20 +55,19 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     const refreshed = await tryRefresh()
     if (refreshed) {
       headers['Authorization'] = `Bearer ${tokenStore.getAccessToken()}`
-      const retry = await fetch(`${BASE_URL}${path}`, {
+      response = await fetch(`${BASE_URL}${path}`, {
         ...rest,
         headers,
         credentials: 'include',
         body: body !== undefined ? JSON.stringify(body) : undefined,
       })
-      if (retry.ok) {
-        return retry.status === 204 ? (undefined as T) : retry.json()
-      }
     }
-    // Refresh failed — clear auth state
-    tokenStore.clear()
-    window.dispatchEvent(new Event('auth:session-expired'))
-    throw new ApiError(401, 'Unauthorized', 'Session expired')
+    // A successful refresh may reveal a validation/server error, not an expired session.
+    if (!refreshed || response.status === 401) {
+      tokenStore.clear()
+      window.dispatchEvent(new Event('auth:session-expired'))
+      throw new ApiError(401, 'Unauthorized', 'Session expired')
+    }
   }
 
   if (!response.ok) {
