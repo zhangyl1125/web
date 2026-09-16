@@ -1462,6 +1462,41 @@
 .dp-candidate-detail-heading { margin: 0 0 12px; font-size: 1.125rem; font-weight: 700; line-height: 1.5; color: #fff; }
 .dp-candidate-detail-paragraph { margin: 0; font-size: 1rem; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dp-candidate-detail-paragraph + .dp-candidate-detail-paragraph { margin-top: 16px; }
+/* View details only: a white 16:9 dialog with independently scrolling columns. */
+.dp-detail-modal {
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  --mantine-color-dimmed: #000;
+}
+.dp-detail-modal-header { flex-shrink: 0; background: #fff; color: #000; }
+.dp-detail-modal-body { flex: 1; min-height: 0; display: flex; }
+.dp-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 30%) minmax(0, 1fr);
+  gap: 28px;
+  width: 100%;
+  min-height: 0;
+}
+.dp-detail-sidebar,
+.dp-detail-modal .dp-candidate-detail-sections {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: #999 #fff;
+}
+.dp-detail-sidebar { padding-right: 8px; }
+.dp-detail-sidebar > * { flex-shrink: 0; }
+.dp-detail-modal :is(.mantine-Text-root, .mantine-Title-root, .mantine-Modal-title, .mantine-Badge-root, .mantine-Button-root, .mantine-CloseButton-root) { color: #000 !important; }
+.dp-detail-modal .mantine-Text-root { font-size: 1rem; }
+.dp-detail-modal :is(.mantine-Title-root, .mantine-Modal-title) { font-size: calc(1rem + 2px); }
+.dp-detail-modal .dp-candidate-detail-section + .dp-candidate-detail-section { border-color: #ddd; }
+.dp-detail-photo-placeholder { width: min(100%, 214px); aspect-ratio: 5 / 7; align-self: center; }
 .dp-overview-logo-wrap { position: relative; width: 100%; max-width: 520px; margin-inline: auto; }
 /* Reuse the exact logo alpha silhouette for its lower lettering. */
 .dp-overview-logo-lettering {

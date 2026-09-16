@@ -23,6 +23,7 @@ import {
   Textarea,
   UnstyledButton,
   Checkbox,
+  Slider,
 } from '@mantine/core'
 import {
   IconTrophy,
@@ -164,6 +165,123 @@ function readVotingCart(userId: string | undefined): { userId: string | undefine
   }
 }
 
+function usePhotoUrl(file: File | null) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!file) {
+      setUrl(null)
+      return
+    }
+    const objectUrl = URL.createObjectURL(file)
+    setUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [file])
+  return file ? url : null
+}
+
+function PersonalPhotoCrop({ file, language, onConfirm, onClose }: {
+  file: File
+  language: string
+  onConfirm: (file: File) => void
+  onClose: () => void
+}) {
+  const source = usePhotoUrl(file)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(false)
+  const zh = language === 'zh'
+  // The same 3:4 viewport and offsets are used for preview and exported pixels.
+  const width = 240
+  const height = 320
+  const scale = dimensions.width ? Math.max(width / dimensions.width, height / dimensions.height) * zoom : 1
+  const limitX = Math.max(0, (dimensions.width * scale - width) / 2)
+  const limitY = Math.max(0, (dimensions.height * scale - height) / 2)
+  const x = Math.max(-limitX, Math.min(limitX, position.x))
+  const y = Math.max(-limitY, Math.min(limitY, position.y))
+
+  const confirmCrop = async () => {
+    if (!imageRef.current || !dimensions.width || saving) return
+    setSaving(true)
+    setError(false)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = 600
+      canvas.height = 800
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Canvas unavailable')
+      context.drawImage(imageRef.current,
+        (dimensions.width * scale / 2 - width / 2 - x) / scale,
+        (dimensions.height * scale / 2 - height / 2 - y) / scale,
+        width / scale, height / scale, 0, 0, canvas.width, canvas.height)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Crop failed')), 'image/png')
+      })
+      onConfirm(new File([blob], `${file.name.replace(/\.[^.]+$/, '')}-cropped.png`, { type: 'image/png' }))
+    } catch {
+      setError(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal opened onClose={() => { if (!saving) onClose() }} title={zh ? '裁剪个人照片' : 'Crop personal photo'} centered size="sm"
+      closeOnClickOutside={!saving} closeOnEscape={!saving} withCloseButton={!saving}>
+      <Stack>
+        <Text size="sm">{zh ? '拖动照片调整位置，使用滑块缩放（3:4 证件照比例）。也可用方向键移动照片。' : 'Drag to reposition and use the slider to zoom (3:4 portrait). Arrow keys also move the photo.'}</Text>
+        <div
+          role="group"
+          aria-label={zh ? '照片裁剪区域' : 'Photo crop area'}
+          tabIndex={0}
+          style={{ width, height, maxWidth: '100%', margin: '0 auto', position: 'relative', overflow: 'hidden', background: '#111', touchAction: 'none', cursor: saving ? 'wait' : 'move', borderRadius: 4 }}
+          onPointerDown={(event) => {
+            if (saving || !dimensions.width || event.button !== 0) return
+            event.currentTarget.setPointerCapture(event.pointerId)
+            event.currentTarget.focus()
+            drag.current = { x: event.clientX, y: event.clientY, left: x, top: y }
+          }}
+          onPointerMove={(event) => {
+            if (!drag.current || saving) return
+            setPosition({
+              x: Math.max(-limitX, Math.min(limitX, drag.current.left + event.clientX - drag.current.x)),
+              y: Math.max(-limitY, Math.min(limitY, drag.current.top + event.clientY - drag.current.y)),
+            })
+          }}
+          onPointerUp={() => { drag.current = null }}
+          onPointerCancel={() => { drag.current = null }}
+          onLostPointerCapture={() => { drag.current = null }}
+          onKeyDown={(event) => {
+            if (saving || !event.key.startsWith('Arrow')) return
+            event.preventDefault()
+            setPosition({
+              x: Math.max(-limitX, Math.min(limitX, x + (event.key === 'ArrowLeft' ? -10 : event.key === 'ArrowRight' ? 10 : 0))),
+              y: Math.max(-limitY, Math.min(limitY, y + (event.key === 'ArrowUp' ? -10 : event.key === 'ArrowDown' ? 10 : 0))),
+            })
+          }}
+        >
+          {source && <img ref={imageRef} src={source} alt={zh ? '待裁剪照片' : 'Photo to crop'} draggable={false}
+            onLoad={(event) => setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+            onError={() => { setDimensions({ width: 0, height: 0 }); setError(true) }}
+            style={{ position: 'absolute', width: dimensions.width * scale, height: dimensions.height * scale, maxWidth: 'none', left: (width - dimensions.width * scale) / 2 + x, top: (height - dimensions.height * scale) / 2 + y, pointerEvents: 'none', userSelect: 'none' }}
+          />}
+        </div>
+        <Text size="sm">{zh ? '缩放' : 'Zoom'}</Text>
+        <Slider thumbLabel={zh ? '照片缩放' : 'Photo zoom'} min={1} max={3} step={0.01} value={zoom} disabled={saving || !dimensions.width}
+          onChange={(value) => { setPosition({ x, y }); setZoom(value) }} label={(value) => `${value.toFixed(1)}×`} />
+        {error && <Text c="red" size="sm" role="alert">{zh ? '无法读取或裁剪照片，请重试或重新选择照片。' : 'Unable to read or crop the photo. Please retry or choose another photo.'}</Text>}
+        <Group justify="flex-end">
+          <Button variant="default" onClick={onClose} disabled={saving}>{zh ? '取消' : 'Cancel'}</Button>
+          <Button onClick={() => void confirmCrop()} loading={saving} disabled={!dimensions.width}>{zh ? '确认裁剪' : 'Confirm crop'}</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  )
+}
+
 export function ProjectShowcase({ nominationMode = false, managementMode = false }: { nominationMode?: boolean; managementMode?: boolean }) {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -216,6 +334,8 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
   const [uploading, setUploading] = useState(false)
   const [hackathons, setHackathons] = useState<AwardSummary[]>([])
   const [projectImage, setProjectImage] = useState<File | null>(null)
+  const [photoToCrop, setPhotoToCrop] = useState<File | null>(null)
+  const photoPreview = usePhotoUrl(projectImage && !validatePersonalPhoto(projectImage) ? projectImage : null)
   const [uploadForm, setUploadForm] = useState<ProjectUploadForm>(emptyUploadForm)
   const [assignedJudgeHackathons, setAssignedJudgeHackathons] = useState<Set<string>>(new Set())
   const [filters, setFilters] = useState<ProjectFilters>({
@@ -676,6 +796,9 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
   if (nominationMode) {
     return (
       <Container size={1240} py={{ base: 'md', md: 'xl' }} className="dp-page">
+        {photoToCrop && <PersonalPhotoCrop file={photoToCrop} language={language}
+          onClose={() => setPhotoToCrop(null)}
+          onConfirm={(file) => { setProjectImage(file); setPhotoToCrop(null) }} />}
         <section className="dp-nomination-flow" aria-labelledby="track-choice-title">
           <div className="dp-flow-heading">
             <div>
@@ -737,7 +860,8 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                     <div>
                       <Title order={3}>{selectedNominationTrack.label}</Title>
                     </div>
-
+                    {photoPreview && <Image src={photoPreview} alt={language === 'zh' ? '个人照片预览' : 'Personal photo preview'}
+                      w={120} h={160} fit="contain" radius="sm" style={{ marginLeft: 'auto' }} />}
                   </Group>
                   <div className="dp-fieldset" translate="no" style={{ borderTop: 0, paddingTop: 0 }}>
                     <Grid gutter="md">
@@ -764,8 +888,15 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                           accept={PHOTO_ACCEPT}
                           error={photoError ? (language === 'zh' ? (projectImage?.size === 0 ? '照片为空，请重新选择。' : projectImage && projectImage.size > MAX_UPLOAD_BYTES ? '照片超过 50 MB，请选择较小的图片。' : '请选择 JPG、PNG 或 WebP 格式的照片。') : photoError) : null}
                           leftSection={<IconPhoto size={16} />}
+                          leftSectionPointerEvents="none"
                           value={projectImage}
-                          onChange={setProjectImage}
+                          onChange={(file) => {
+                            if (!file || validatePersonalPhoto(file)) setProjectImage(file)
+                            else {
+                              setProjectImage((current) => validatePersonalPhoto(current) ? null : current)
+                              setPhotoToCrop(file)
+                            }
+                          }}
                           clearable
                         />
                       </Grid.Col>
@@ -1323,25 +1454,107 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
           opened={modalOpened}
           onClose={() => setModalOpened(false)}
           title={selectedProject?.title}
-          size="xl"
-          classNames={{ content: 'dp-candidate-modal', header: 'dp-candidate-modal-header' }}
+          size="min(1200px, calc((100dvh - 48px) * 16 / 9), calc(100vw - 32px))"
+          centered
+          classNames={{ content: 'dp-detail-modal', header: 'dp-detail-modal-header', body: 'dp-detail-modal-body' }}
         >
         {selectedProject && (
-          <Stack gap="md">
-            {selectedProject.images[0] ? (
-              <Image
-                src={selectedProject.images[0]}
-                alt={`${selectedProject.nominee_name} nomination`}
-                className="dp-candidate-detail-photo"
-                radius="md"
-                fit="contain"
-              />
-            ) : (
-              <div style={{ height: 300, backgroundColor: '#f8f9fa', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Text c="dimmed">Nominee photo</Text>
-              </div>
-            )}
+          <div className="dp-detail-layout">
+            <Stack gap="md" className="dp-detail-sidebar">
+              {selectedProject.images[0] ? (
+                <Image
+                  src={selectedProject.images[0]}
+                  alt={`${selectedProject.nominee_name} nomination`}
+                  className="dp-candidate-detail-photo"
+                  radius="md"
+                  fit="contain"
+                />
+              ) : (
+                <div className="dp-detail-photo-placeholder" style={{ backgroundColor: '#f8f9fa', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text c="dimmed">Nominee photo</Text>
+                </div>
+              )}
 
+              <Badge variant="light" w="fit-content">{selectedProject.category}</Badge>
+
+              {/* Individual nominee */}
+              <div>
+                <Title order={5} mb="sm">Nominee</Title>
+                <Group>
+                  {([{ id: selectedProject.id, name: selectedProject.nominee_name, role: undefined }]).map((member) => (
+                    <Group key={member.id} gap="xs">
+                      <Avatar size="sm" />
+                      <div>
+                        <Text size="sm" fw={500} translate="no">{member.name}</Text>
+                        <Text size="sm" c="dimmed"><span>Department</span>: <span translate="no">{selectedProject.nominee_org_code.split('-')[0] || '—'}</span></Text>
+                        <Text size="sm" c="dimmed"><span>Org. code</span>: <span translate="no">{selectedProject.nominee_org_code || '—'}</span></Text>
+                        {member.role && <Text size="sm" c="dimmed">{member.role}</Text>}
+                      </div>
+                    </Group>
+                  ))}
+                </Group>
+              </div>
+
+              <div>
+                <Title order={5} mb="sm">Tags</Title>
+                <Group>
+                  {selectedProject.technologies.map((tech) => (
+                    <Badge key={tech} variant="light">
+                      {tech}
+                    </Badge>
+                  ))}
+                </Group>
+              </div>
+
+              {/* Links */}
+              <Group>
+                {selectedProject.github_url && (
+                  <Button
+                    component="a"
+                    href={selectedProject.github_url}
+                    target="_blank"
+                    leftSection={<IconBrandGithub size={16} />}
+                    variant="light"
+                  >
+                    View Evidence
+                  </Button>
+                )}
+                {selectedProject.demo_url && (
+                  <Button
+                    component="a"
+                    href={selectedProject.demo_url}
+                    target="_blank"
+                    leftSection={<IconExternalLink size={16} />}
+                    variant="light"
+                  >
+                    Additional evidence
+                  </Button>
+                )}
+                {(user?.role === 'admin' || user?.role === 'manager'
+                  || assignedJudgeHackathons.has(selectedProject.hackathon_id)) && (
+                  <Button
+                    leftSection={<IconGavel size={16} />}
+                    variant="light"
+                    color="grape"
+                    onClick={() => navigate(`/hackathons/${selectedProject.hackathon_id}/judge`)}
+                  >
+                    Committee scoring
+                  </Button>
+                )}
+              </Group>
+
+              {/* Vote Button */}
+              <Button
+                fullWidth
+                disabled={submitting || deletingRecord || loading}
+                leftSection={selectedProject.user_vote ? <IconThumbUpFilled size={16} /> : <IconThumbUp size={16} />}
+                variant={selectedProject.user_vote ? 'filled' : 'light'}
+                color="red"
+                onClick={() => handleVote(selectedProject.id)}
+              >
+                {selectedProject.user_vote ? 'View voting record' : cartIds.has(selectedProject.id) ? 'Remove from cart' : 'Add to cart'} ({selectedProject.votes})
+              </Button>
+            </Stack>
             {/* Description */}
             <div className="dp-candidate-detail-sections">
               {parseNominationDescription(selectedProject.description).map((section, index) => (
@@ -1353,89 +1566,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
                 </section>
               ))}
             </div>
-            <Badge variant="light" w="fit-content">{selectedProject.category}</Badge>
-
-            {/* Individual nominee */}
-            <div>
-              <Title order={5} mb="sm">Nominee</Title>
-              <Group>
-                {([{ id: selectedProject.id, name: selectedProject.nominee_name, role: undefined }]).map((member) => (
-                  <Group key={member.id} gap="xs">
-                    <Avatar size="sm" />
-                    <div>
-                      <Text size="sm" fw={500} translate="no">{member.name}</Text>
-                      <Text size="sm" c="dimmed"><span>Department</span>: <span translate="no">{selectedProject.nominee_org_code.split('-')[0] || '—'}</span></Text>
-                      <Text size="sm" c="dimmed"><span>Org. code</span>: <span translate="no">{selectedProject.nominee_org_code || '—'}</span></Text>
-                      {member.role && <Text size="sm" c="dimmed">{member.role}</Text>}
-                    </div>
-                  </Group>
-                ))}
-              </Group>
-            </div>
-
-            <div>
-              <Title order={5} mb="sm">Tags</Title>
-              <Group>
-                {selectedProject.technologies.map((tech) => (
-                  <Badge key={tech} variant="light">
-                    {tech}
-                  </Badge>
-                ))}
-              </Group>
-            </div>
-
-            {/* Links */}
-            <Group>
-              {selectedProject.github_url && (
-                <Button
-                  component="a"
-                  href={selectedProject.github_url}
-                  target="_blank"
-                  leftSection={<IconBrandGithub size={16} />}
-                  variant="light"
-                >
-                  View Evidence
-                </Button>
-              )}
-              {selectedProject.demo_url && (
-                <Button
-                  component="a"
-                  href={selectedProject.demo_url}
-                  target="_blank"
-                  leftSection={<IconExternalLink size={16} />}
-                  variant="light"
-                >
-                  Additional evidence
-                </Button>
-              )}
-              {(user?.role === 'admin' || user?.role === 'manager'
-                || assignedJudgeHackathons.has(selectedProject.hackathon_id)) && (
-                <Button
-                  leftSection={<IconGavel size={16} />}
-                  variant="light"
-                  color="grape"
-                  onClick={() => navigate(`/hackathons/${selectedProject.hackathon_id}/judge`)}
-                >
-                  Committee scoring
-                </Button>
-              )}
-            </Group>
-
-            {/* Vote Button */}
-            <Button
-              fullWidth
-              disabled={submitting || deletingRecord || loading}
-              leftSection={selectedProject.user_vote ? <IconThumbUpFilled size={16} /> : <IconThumbUp size={16} />}
-              variant={selectedProject.user_vote ? 'filled' : 'light'}
-              color="red"
-              onClick={() => handleVote(selectedProject.id)}
-            >
-              {selectedProject.user_vote ? 'View voting record' : cartIds.has(selectedProject.id) ? 'Remove from cart' : 'Add to cart'} ({selectedProject.votes})
-            </Button>
-
-
-
-          </Stack>
+          </div>
         )}
       </Modal>
 
