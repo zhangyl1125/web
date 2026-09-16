@@ -73,6 +73,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       reconnectDelay: 3000,
       onConnect: () => setIsConnected(true),
       onDisconnect: () => setIsConnected(false),
+      onWebSocketClose: () => setIsConnected(false),
       onStompError: (frame) => {
         console.error('STOMP error', frame.headers?.message)
       },

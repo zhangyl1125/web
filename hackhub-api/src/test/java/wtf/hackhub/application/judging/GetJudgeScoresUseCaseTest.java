@@ -209,6 +209,42 @@ class GetJudgeScoresUseCaseTest {
 	}
 
 	@Test
+	void summary_recomputes_average_as_judges_complete_update_and_withdraw_evaluations() {
+		UUID award = UUID.randomUUID(), idea = UUID.randomUUID();
+		UUID first = UUID.randomUUID(), second = UUID.randomUUID(), third = UUID.randomUUID();
+		var behavior = new wtf.hackhub.domain.VotingCriteria(award, "Behavior", "", 70, 0);
+		var impact = new wtf.hackhub.domain.VotingCriteria(award, "Impact", "", 30, 1);
+		UUID behaviorId = UUID.randomUUID(), impactId = UUID.randomUUID();
+		org.springframework.test.util.ReflectionTestUtils.setField(behavior, "id", behaviorId);
+		org.springframework.test.util.ReflectionTestUtils.setField(impact, "id", impactId);
+		when(hackathonRepository.findById(award)).thenReturn(Optional.of(hackathon(Hackathon.JudgingMode.PANEL, 100)));
+		var nomination = mockIdea(idea, award, null);
+		when(ideaRepository.findAllByHackathonId(award)).thenReturn(List.of(nomination));
+		when(criteriaRepository.findAllByHackathonIdOrderByDisplayOrder(award)).thenReturn(List.of(behavior, impact));
+		var scores = new java.util.ArrayList<JudgeScore>();
+		when(judgeScoreRepository.findAllByHackathonId(award)).thenAnswer(invocation -> List.copyOf(scores));
+		scores.add(new JudgeScore(award, idea, first, behaviorId, 6, null));
+		scores.add(new JudgeScore(award, idea, first, impactId, 6, null));
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("6.00");
+		scores.add(new JudgeScore(award, idea, second, behaviorId, 7, null));
+		assertThat(useCase.getSummary(award).get(0).judgeCount()).isEqualTo(1);
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("6.00");
+		scores.add(new JudgeScore(award, idea, second, impactId, 7, null));
+		assertThat(useCase.getSummary(award).get(0).judgeCount()).isEqualTo(2);
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("6.50");
+		scores.add(new JudgeScore(award, idea, third, behaviorId, 8, null));
+		scores.add(new JudgeScore(award, idea, third, impactId, 8, null));
+		assertThat(useCase.getSummary(award).get(0).judgeCount()).isEqualTo(3);
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("7.00");
+		scores.stream().filter(score -> score.getJudgeId().equals(first)).forEach(score -> score.update(9, null));
+		assertThat(useCase.getSummary(award).get(0).judgeCount()).isEqualTo(3);
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("8.00");
+		scores.removeIf(score -> score.getJudgeId().equals(third));
+		assertThat(useCase.getSummary(award).get(0).judgeCount()).isEqualTo(2);
+		assertThat(useCase.getSummary(award).get(0).panelScore()).isEqualByComparingTo("8.00");
+	}
+
+	@Test
 	void summary_preserves_ties_and_marks_unscored_cases_without_a_rank() {
 		UUID award = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID(), pending = UUID.randomUUID();
 		when(hackathonRepository.findById(award)).thenReturn(Optional.of(hackathon(Hackathon.JudgingMode.PANEL, 100)));

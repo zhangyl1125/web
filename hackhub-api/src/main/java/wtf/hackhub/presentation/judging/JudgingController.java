@@ -18,6 +18,7 @@ import wtf.hackhub.application.judging.*;
 import wtf.hackhub.domain.JudgeScore;
 import wtf.hackhub.infrastructure.persistence.hackathon.HackathonRepository;
 import wtf.hackhub.infrastructure.persistence.organization.OrganizationMemberRepository;
+import wtf.hackhub.presentation.websocket.HackathonEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -36,11 +37,12 @@ public class JudgingController {
 	private final GetJudgeScoresUseCase getScoresUseCase;
 	private final HackathonRepository hackathonRepository;
 	private final OrganizationMemberRepository memberRepository;
+	private final HackathonEventPublisher eventPublisher;
 
 	public JudgingController(InviteJudgeUseCase inviteJudgeUseCase, RemoveJudgeUseCase removeJudgeUseCase,
 			GetHackathonJudgesUseCase getJudgesUseCase, SubmitJudgeScoreUseCase submitScoreUseCase,
 			GetJudgeScoresUseCase getScoresUseCase, HackathonRepository hackathonRepository,
-			OrganizationMemberRepository memberRepository) {
+			OrganizationMemberRepository memberRepository, HackathonEventPublisher eventPublisher) {
 		this.inviteJudgeUseCase = inviteJudgeUseCase;
 		this.removeJudgeUseCase = removeJudgeUseCase;
 		this.getJudgesUseCase = getJudgesUseCase;
@@ -48,6 +50,7 @@ public class JudgingController {
 		this.getScoresUseCase = getScoresUseCase;
 		this.hackathonRepository = hackathonRepository;
 		this.memberRepository = memberRepository;
+		this.eventPublisher = eventPublisher;
 	}
 
 	@Operation(summary = "List all judges for a hackathon")
@@ -93,6 +96,8 @@ public class JudgingController {
 			@AuthenticationPrincipal UUID userId) {
 		JudgeScore score = submitScoreUseCase.execute(hackathonId, req.ideaId(), userId, req.criterionId(), req.score(),
 				req.comment());
+		// The transactional use case has committed before notifying other clients.
+		eventPublisher.publishJudgeScoresUpdated(hackathonId, req.ideaId());
 		return ScoreResponse.from(score);
 	}
 
@@ -121,10 +126,12 @@ public class JudgingController {
 	@PostMapping("/evaluations")
 	public List<ScoreResponse> submitEvaluation(@PathVariable UUID hackathonId,
 			@Valid @RequestBody EvaluationRequest req, @AuthenticationPrincipal UUID userId) {
-		return submitScoreUseCase.submitEvaluation(
+		var scores = submitScoreUseCase.submitEvaluation(
 				hackathonId, req.ideaId(), userId, req.scores().stream()
 						.map(s -> new SubmitJudgeScoreUseCase.CriterionScore(s.criterionId(), s.score())).toList(),
-				req.comment()).stream().map(ScoreResponse::from).toList();
+				req.comment());
+		eventPublisher.publishJudgeScoresUpdated(hackathonId, req.ideaId());
+		return scores.stream().map(ScoreResponse::from).toList();
 	}
 
 	@DeleteMapping("/evaluations/{ideaId}")
@@ -132,6 +139,7 @@ public class JudgingController {
 	public void deleteEvaluation(@PathVariable UUID hackathonId, @PathVariable UUID ideaId,
 			@AuthenticationPrincipal UUID userId) {
 		submitScoreUseCase.deleteEvaluation(hackathonId, ideaId, userId);
+		eventPublisher.publishJudgeScoresUpdated(hackathonId, ideaId);
 	}
 
 	@GetMapping("/scores/all")

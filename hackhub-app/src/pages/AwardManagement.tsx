@@ -1,18 +1,57 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { Alert, Badge, Button, Card, Container, Group, Modal, TextInput, Select, Stack, Text, Title } from '@mantine/core'
+import { Alert, Badge, Button, Card, Container, Group, Modal, TextInput, Select, Stack, Table, Text, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useAuthStore } from '../store/authStore'
 import { HackathonService, type Hackathon } from '../services/hackathonService'
-import { JudgingService, type HackathonJudge } from '../services/judgingService'
+import { JudgingService, type HackathonJudge, type ScoreSummary } from '../services/judgingService'
 import { OrganizationService } from '../services/organizationService'
 import { getAllPages } from '../services/pagination'
 import { api } from '../lib/apiClient'
-import { DIGITAL_PIONEER_RUBRIC } from '../config/digitalPioneer'
+import { DIGITAL_PIONEER_RUBRIC, DIGITAL_PIONEER_TRACKS, normalizeDigitalPioneerTrack } from '../config/digitalPioneer'
 import { VotingCriteriaManager } from '../components/VotingCriteriaManager'
 import { useLanguage } from '../contexts/LanguageContext'
 import { translateUiText } from '../contexts/uiTranslations'
+import { loadAllNominations, rankCommitteeScores } from '../utils/committeeScoring'
+import type { Idea } from '../services/ideaService'
 import './DigitalPioneer.css'
+
+function AwardVotingResults({ hackathonId }: { hackathonId: string }) {
+  const { language } = useLanguage()
+  const [results, setResults] = useState<{ nominations: Idea[]; scores: ScoreSummary[] } | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    setResults(null)
+    setError('')
+    void Promise.all([loadAllNominations(hackathonId), JudgingService.getScoreSummary(hackathonId)])
+      .then(([nominations, scores]) => { if (active) setResults({ nominations, scores }) })
+      .catch(() => { if (active) setError(language === 'zh' ? '无法加载投票结果，请刷新重试。' : 'Unable to load voting results. Please refresh and try again.') })
+    return () => { active = false }
+  }, [hackathonId, language])
+
+  return <Card className="dp-form-shell" p={{ base: 'lg', md: 32 }}>
+    <Title order={3}>{language === 'zh' ? '各赛道投票结果' : 'Voting results by category'}</Title>
+    {error ? <Alert mt="md" color="red">{error}</Alert> : !results ? <Text mt="md" role="status">{language === 'zh' ? '正在加载投票结果…' : 'Loading voting results…'}</Text> : (
+      <Stack mt="lg" gap="xl">
+        {DIGITAL_PIONEER_TRACKS.map((track) => {
+          const nominationIds = new Set(results.nominations.filter((idea) => normalizeDigitalPioneerTrack(idea.category, idea.tags ?? []) === track.value).map((idea) => idea.id))
+          const rows = rankCommitteeScores(results.scores.filter((score) => nominationIds.has(score.ideaId)))
+          return <Stack key={track.value} gap="sm" component="section" aria-label={`${track.label} voting results`}>
+            <Title order={4}>{track.label} · {track.labelZh}</Title>
+            {!rows.length ? <Text>{language === 'zh' ? '该赛道暂无提名。' : 'No nominations in this category yet.'}</Text> : (
+              <Table.ScrollContainer minWidth={520} type="native"><Table>
+                <Table.Thead><Table.Tr><Table.Th>Nomination</Table.Th><Table.Th>Associate votes</Table.Th><Table.Th>Committee total</Table.Th><Table.Th>Completed judges</Table.Th></Table.Tr></Table.Thead>
+                <Table.Tbody>{rows.map((score) => <Table.Tr key={score.ideaId}><Table.Td>{score.ideaTitle}</Table.Td><Table.Td>{score.voteCount}</Table.Td><Table.Td>{score.panelScore?.toFixed(2) ?? 'Not scored'}</Table.Td><Table.Td>{score.judgeCount}</Table.Td></Table.Tr>)}</Table.Tbody>
+              </Table></Table.ScrollContainer>
+            )}
+          </Stack>
+        })}
+      </Stack>
+    )}
+  </Card>
+}
 
 export function AwardManagement() {
   const { id } = useParams<{ id: string }>()
@@ -131,7 +170,6 @@ export function AwardManagement() {
               <Group mt="lg">
                 <Button component={Link} to={`/hackathons/${item.id}/judge`}>Committee scoring</Button>
                 {canManage && <Button component={Link} to={`/hackathons/${item.id}/leaderboard`} variant="light">Scores & rankings</Button>}
-                {canManage && <Button component={Link} to={`/hackathons/${item.id}/edit`} variant="outline">Edit campaign & dates</Button>}
                 {isAdmin && <Button variant="subtle" color="red" c="#ffb1b1" onClick={() => requestDelete(item)}>Delete award</Button>}
               </Group>
             </Card>
@@ -144,7 +182,6 @@ export function AwardManagement() {
               <Group mt="lg">
                 <Button component={Link} to={`/hackathons/${id}/judge`}>Committee scoring</Button>
                 {canManage && <Button component={Link} to={`/hackathons/${id}/leaderboard`} variant="light">Scores & rankings</Button>}
-                {canManage && <Button component={Link} to={`/hackathons/${id}/edit`} variant="default">Edit campaign & dates</Button>}
                 {isAdmin && <Button variant="subtle" color="red" c="#ffb1b1" onClick={() => requestDelete(campaign)}>Delete award</Button>}
               </Group>
               {canManage && <Select mt="lg" maw={520} size="md" label="Campaign status" description="Running campaigns accept associate votes; completed campaigns close voting." value={campaign.status} disabled={busy}
@@ -154,6 +191,7 @@ export function AwardManagement() {
                   setCampaigns((current) => current.map((item) => item.id === updated.id ? updated : item))
                 }) }} />}
             </Card>
+            {canManage && <AwardVotingResults key={campaign.id} hackathonId={campaign.id} />}
             {canManage && <Card className="dp-form-shell" p={{ base: 'lg', md: 32 }}>
               <Title order={3}>Committee members</Title>
               <Stack mt="md">

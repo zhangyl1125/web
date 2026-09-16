@@ -34,7 +34,7 @@ import {
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
-import { DIGITAL_PIONEER_RECOMMENDATIONS, DIGITAL_PIONEER_RUBRIC } from '../config/digitalPioneer'
+import { DIGITAL_PIONEER_RECOMMENDATIONS, DIGITAL_PIONEER_RUBRIC, DIGITAL_PIONEER_TRACKS, normalizeDigitalPioneerTrack } from '../config/digitalPioneer'
 import { useAuthStore } from '../store/authStore'
 import { loadAllNominations, officialCriteria, savedEvaluation } from '../utils/committeeScoring'
 import type { JudgeScore } from '../services/judgingService'
@@ -424,6 +424,11 @@ export function JudgingPanel(): ReactElement {
   const error = criteriaError ?? ideasError ?? scoresError
   const ideas: Idea[] = nominations ?? []
   const submittedIdeas = ideas.filter((idea) => ['submitted', 'in-progress', 'completed'].includes(idea.status))
+    .map((idea) => ({ ...idea, category: normalizeDigitalPioneerTrack(idea.category, idea.tags ?? []) }))
+  const tracks = DIGITAL_PIONEER_TRACKS.map((track) => ({
+    ...track,
+    ideas: submittedIdeas.filter((idea) => idea.category === track.value),
+  }))
   const criteriaReady = officialCriteria(criteria ?? [])
 
   return (
@@ -490,24 +495,28 @@ export function JudgingPanel(): ReactElement {
             </Stack>}
           </Alert>
         ) : null}
-        {!isLoading && !error && criteriaReady && submittedIdeas.length === 0 ? (
-          <Center py={80}><Stack align="center"><Text fw={700}>No nominations are ready for review.</Text><Text c="dimmed">Submitted cases will appear here automatically.</Text></Stack></Center>
-        ) : null}
-        {!isLoading && !error && criteriaReady ? submittedIdeas.map((idea) => (
-          <IdeaJudgingCard
-            key={`${idea.id}-${ownScores.filter((score) => score.ideaId === idea.id).map((score) => `${score.id}:${score.score}:${score.comment}`).join()} `}
-            savedScores={ownScores.filter((score) => score.ideaId === idea.id)}
-            canSubmitRating={isAssignedJudge}
-            idea={idea}
-            criteria={criteria ?? []}
-            alreadyScored={scoredIdeaIds.has(idea.id)}
-            isSubmitting={submittingIdea === idea.id}
-            onDelete={() => { setSubmittingIdea(idea.id); deleteRatingMutation.mutate(idea.id) }}
-            onSubmit={(submission) => {
-              setSubmittingIdea(idea.id)
-              scoreIdeaMutation.mutate(submission)
-            }}
-          />
+        {!isLoading && !error && criteriaReady ? tracks.map((track) => (
+          <Stack key={track.value} gap="md" component="section" aria-label={track.label}>
+            <Text component="h2" size="xl" fw={800} m={0} c="white">{track.label} · {track.labelZh}</Text>
+            {track.ideas.length === 0 ? (
+              <Text c="white">No nominations in this category yet.</Text>
+            ) : track.ideas.map((idea) => (
+              <IdeaJudgingCard
+                key={`${idea.id}-${ownScores.filter((score) => score.ideaId === idea.id).map((score) => `${score.id}:${score.score}:${score.comment}`).join()} `}
+                savedScores={ownScores.filter((score) => score.ideaId === idea.id)}
+                canSubmitRating={isAssignedJudge}
+                idea={idea}
+                criteria={criteria ?? []}
+                alreadyScored={scoredIdeaIds.has(idea.id)}
+                isSubmitting={submittingIdea === idea.id}
+                onDelete={() => { setSubmittingIdea(idea.id); deleteRatingMutation.mutate(idea.id) }}
+                onSubmit={(submission) => {
+                  setSubmittingIdea(idea.id)
+                  scoreIdeaMutation.mutate(submission)
+                }}
+              />
+            ))}
+          </Stack>
         )) : null}
       </Stack>
     </Container>

@@ -37,6 +37,11 @@ public class HackathonEventPublisher {
 				Map.of("event", "VOTE_UPDATED", "ideaId", ideaId, "voteCount", voteCount));
 	}
 
+	public void publishJudgeScoresUpdated(UUID hackathonId, UUID ideaId) {
+		messaging.convertAndSend("/topic/hackathon." + hackathonId + ".updates",
+				Map.of("event", "JUDGE_SCORES_UPDATED", "ideaId", ideaId));
+	}
+
 	public void notifyUser(String username, String title, String message, String actionUrl) {
 		messaging.convertAndSendToUser(username, "/queue/notifications",
 				Map.of("title", title, "message", message, "actionUrl", actionUrl));

@@ -15,7 +15,8 @@ vi.mock('../services/hackathonService', () => ({ HackathonService: { deleteHacka
   { id: 'award-1', title: 'Assigned award', startDate: '2026-10-19', endDate: '2026-11-30', status: 'running' },
   { id: 'award-2', title: 'Other award', startDate: '2026-10-19', endDate: '2026-11-30', status: 'running' },
 ] }) } }))
-vi.mock('../services/judgingService', () => ({ JudgingService: { getJudges: vi.fn(async (id: string) => id === 'award-1' ? [{ id: 'assignment-1', userId: 'judge-1', name: 'Assigned Judge' }] : []) } }))
+vi.mock('../services/judgingService', () => ({ JudgingService: { getScoreSummary: vi.fn().mockResolvedValue([{ ideaId: 'value-1', ideaTitle: 'Value nominee', panelScore: 8, judgeCount: 1, voteCount: 3 }]), getJudges: vi.fn(async (id: string) => id === 'award-1' ? [{ id: 'assignment-1', userId: 'judge-1', name: 'Assigned Judge' }] : []) } }))
+vi.mock('../services/ideaService', () => ({ IdeaService: { getIdeas: vi.fn().mockResolvedValue({ content: [{ id: 'value-1', category: 'Customer Values', tags: [] }], totalPages: 1 }) } }))
 vi.mock('../lib/apiClient', () => ({ api: { get: vi.fn().mockResolvedValue({ content: [] }) } }))
 vi.mock('../components/VotingCriteriaManager', () => ({ VotingCriteriaManager: () => <div>Official evaluation criteria</div> }))
 
@@ -49,7 +50,7 @@ describe('AwardManagement', () => {
       await screen.findByRole('link', { name: 'Assigned award' })
       await actor.type(screen.getByRole('textbox', { name: 'Search awards' }), 'Other')
       expect(screen.queryByRole('link', { name: 'Assigned award' })).not.toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Edit campaign & dates' })).toHaveAttribute('href', '/hackathons/award-2/edit')
+      expect(screen.queryByRole('link', { name: 'Edit campaign & dates' })).not.toBeInTheDocument()
       await actor.click(screen.getByRole('button', { name: 'Delete award' }))
       const dialog = screen.getByRole('dialog')
       expect(within(dialog).getByText('Other award')).toBeInTheDocument()
@@ -71,6 +72,16 @@ describe('AwardManagement', () => {
     try {
       show('/awards/award-1')
       expect(await screen.findByRole('heading', { name: 'Committee members' })).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Edit campaign & dates' })).not.toBeInTheDocument()
+      const values = await screen.findByRole('region', { name: 'Customer Values voting results' })
+      expect(within(values).getByText('Value nominee')).toBeInTheDocument()
+      expect(within(values).getByText('3')).toBeInTheDocument()
+      expect(within(values).getByText('8.00')).toBeInTheDocument()
+      for (const track of ['Innovation Breakthrough', 'Collaboration to Win']) {
+        const results = screen.getByRole('region', { name: `${track} voting results` })
+        expect(within(results).queryByText('Value nominee')).not.toBeInTheDocument()
+        expect(within(results).getByText('No nominations in this category yet.')).toBeInTheDocument()
+      }
       expect(screen.getByRole('link', { name: 'Scores & rankings' })).toHaveAttribute('href', '/hackathons/award-1/leaderboard')
       expect(screen.getByText(/BD\/DPA-SRE3 → BD\/DPA/)).toBeInTheDocument()
       expect(screen.queryByText(/Maximum Team Size/)).not.toBeInTheDocument()
