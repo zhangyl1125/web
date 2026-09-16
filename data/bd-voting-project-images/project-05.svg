@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c2d12"/><stop offset="1" stop-color="#f97316"/></linearGradient></defs>
-  <rect width="1200" height="675" fill="url(#g)"/><text x="80" y="115" fill="#fed7aa" font-family="Arial,sans-serif" font-size="34" font-weight="700">BD/ISA-SSP7 · PROJECT 05</text>
-  <text x="80" y="275" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">Secure Knowledge</text><text x="80" y="360" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">Assistant</text>
-  <path d="M940 195l145 55v105c0 105-60 155-145 190-85-35-145-85-145-190V250z" fill="#ffedd5" opacity=".92"/><path d="M885 355l40 40 80-95" fill="none" stroke="#c2410c" stroke-width="18" stroke-linecap="round"/>
-  <text x="80" y="575" fill="#ffedd5" font-family="Arial,sans-serif" font-size="30">Trusted answers with permissions and source citations</text>
-</svg>

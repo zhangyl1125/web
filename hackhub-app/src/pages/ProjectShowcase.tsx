@@ -1112,7 +1112,7 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
         >
           <Group className="dp-vote-cart-header" justify="space-between" wrap="nowrap" gap={6}>
             <Title order={2} size="h4" id="vote-cart-title" aria-live="polite">{language === 'zh' ? `我的点赞（${votedProjects.length}）` : `My votes (${votedProjects.length})`}</Title>
-            <Button size="compact-xs" variant="light" loading={submitting} style={{ flexShrink: 0 }}
+            <Button size="compact-xs" variant="light" c="#fff" loading={submitting} style={{ flexShrink: 0 }}
               disabled={!user || loading || loadError || deletingRecord || !votedProjects.length}
               onClick={() => void submitCart()}>Submit</Button>
             <Group gap={4} wrap="nowrap">

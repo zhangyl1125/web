@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#102a43"/><stop offset="1" stop-color="#1677ff"/></linearGradient></defs>
-  <rect width="1200" height="675" fill="url(#g)"/><circle cx="975" cy="120" r="180" fill="#fff" opacity=".08"/>
-  <text x="80" y="115" fill="#79c0ff" font-family="Arial,sans-serif" font-size="34" font-weight="700">BD/SWD-WDE1 · PROJECT 01</text>
-  <text x="80" y="275" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">AI Code Review</text>
-  <text x="80" y="360" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">Platform</text>
-  <path d="M820 260h260M820 320h210M820 380h240M820 440h160" stroke="#7ee787" stroke-width="20" stroke-linecap="round" opacity=".9"/>
-  <text x="80" y="575" fill="#dbeafe" font-family="Arial,sans-serif" font-size="30">AI-assisted quality, defects and repair suggestions</text>
-</svg>

@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#4a044e"/><stop offset="1" stop-color="#db2777"/></linearGradient></defs>
-  <rect width="1200" height="675" fill="url(#g)"/><text x="80" y="115" fill="#fbcfe8" font-family="Arial,sans-serif" font-size="34" font-weight="700">BD/DPA-SRE3 · PROJECT 06</text>
-  <text x="80" y="275" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">Process Mining</text><text x="80" y="360" fill="white" font-family="Arial,sans-serif" font-size="70" font-weight="700">Optimizer</text>
-  <g stroke="#fce7f3" stroke-width="12" fill="#9d174d"><circle cx="830" cy="280" r="46"/><circle cx="1040" cy="230" r="46"/><circle cx="1080" cy="455" r="46"/><circle cx="850" cy="475" r="46"/><path d="M875 270l115-30M1060 275l15 130M1035 455l-135 15M850 425l-5-95" fill="none"/></g>
-  <text x="80" y="575" fill="#fce7f3" font-family="Arial,sans-serif" font-size="30">Discover bottlenecks and recommend automation improvements</text>
-</svg>

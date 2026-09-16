@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#365314"/><stop offset="1" stop-color="#84cc16"/></linearGradient></defs>
-  <rect width="1200" height="675" fill="url(#g)"/><text x="80" y="115" fill="#d9f99d" font-family="Arial,sans-serif" font-size="34" font-weight="700">BD/PTD-S2P3 · PROJECT 04</text>
-  <text x="80" y="280" fill="white" font-family="Arial,sans-serif" font-size="76" font-weight="700">Carbon Trace</text><text x="80" y="365" fill="white" font-family="Arial,sans-serif" font-size="76" font-weight="700">Cockpit</text>
-  <path d="M940 180c-120 100-165 200-100 300 125-15 220-100 220-280-45 30-80 50-120-20z" fill="#ecfccb" opacity=".9"/><path d="M835 500c40-110 95-170 180-240" stroke="#3f6212" stroke-width="15" fill="none"/>
-  <text x="80" y="575" fill="#ecfccb" font-family="Arial,sans-serif" font-size="30">Traceable lifecycle emissions and reduction insights</text>
-</svg>
