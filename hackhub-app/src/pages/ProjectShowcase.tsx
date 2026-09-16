@@ -246,23 +246,46 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
           ? current
           : { ...current, hackathonId: currentAward.id })
 
+        // Share requests within this refresh only, so votes and account changes stay fresh.
+        const profiles = new Map<string, ReturnType<typeof ProfileService.getProfile>>()
+        const imageUrls = new Map<string, Promise<string>>()
+        const getProfile = (id: string) => {
+          let request = profiles.get(id)
+          if (!request) {
+            request = ProfileService.getProfile(id)
+            profiles.set(id, request)
+          }
+          return request.catch(() => null)
+        }
+        const getImageUrl = (key: string) => {
+          let request = imageUrls.get(key)
+          if (!request) {
+            request = StorageService.getPresignedUrl('project-attachments', key)
+            imageUrls.set(key, request)
+          }
+          return request
+        }
+
         const hackathonData = await Promise.all(loadedHackathons.map(async (hackathon) => {
           const [ideasPage, teams] = await Promise.all([
             getAllPages((page) => IdeaService.getIdeas(hackathon.id, page, 100)),
             TeamService.getTeams(hackathon.id),
           ])
 
-          const teamsWithMembers = await Promise.all(teams.map(async (team) => ({
+          const usedTeamIds = new Set(ideasPage.map((idea) => idea.teamId))
+          const teamsById = new Map(teams.map((team) => [team.id, team]))
+          const teamsWithMembers = await Promise.all(teams.filter((team) => usedTeamIds.has(team.id)).map(async (team) => ({
             team,
             members: await TeamService.getTeamMembers(team.id).catch(() => []),
           })))
           const membersByTeam = new Map(teamsWithMembers.map(({ team, members }) => [team.id, members]))
 
           const projectList = await Promise.all(ideasPage.map(async (idea): Promise<Project> => {
-            const team = teams.find((candidate) => candidate.id === idea.teamId)
+            const nomination = idea.projectAttachments?.find((attachment) => attachment.type === 'nomination')
+            const team = idea.teamId ? teamsById.get(idea.teamId) : undefined
             const members = team ? membersByTeam.get(team.id) ?? [] : []
             const teamMembers = await Promise.all(members.map(async (member) => {
-              const profile = await ProfileService.getProfile(member.userId).catch(() => null)
+              const profile = await getProfile(member.userId)
               return {
                 id: member.userId,
                 name: profile?.name ?? member.userId,
@@ -274,20 +297,20 @@ export function ProjectShowcase({ nominationMode = false, managementMode = false
               .filter((attachment) => attachment.type === 'screenshot')
             const images = await Promise.all(screenshots.map(async (attachment) => {
               if (!attachment.storageKey) return attachment.url
-              return StorageService.getPresignedUrl('project-attachments', attachment.storageKey)
+              return getImageUrl(attachment.storageKey)
                 .catch(() => attachment.url)
             }))
 
-            const creatorProfile = teamMembers.length > 0
+            const creatorProfile = teamMembers.length > 0 || nomination?.name != null
               ? null
-              : await ProfileService.getProfile(idea.createdBy).catch(() => null)
+              : await getProfile(idea.createdBy)
 
             return {
               id: idea.id,
               title: idea.title,
               description: idea.description,
-              nominee_org_code: idea.projectAttachments?.find((attachment) => attachment.type === 'nomination')?.nomineeOrgCode ?? '',
-              nominee_name: idea.projectAttachments?.find((attachment) => attachment.type === 'nomination')?.name ?? teamMembers[0]?.name ?? creatorProfile?.name ?? team?.name ?? 'Individual Nominee',
+              nominee_org_code: nomination?.nomineeOrgCode ?? '',
+              nominee_name: nomination?.name ?? teamMembers[0]?.name ?? creatorProfile?.name ?? team?.name ?? 'Individual Nominee',
               team_members: teamMembers,
               hackathon_id: hackathon.id,
               category: normalizeDigitalPioneerTrack(idea.category, idea.tags ?? []),

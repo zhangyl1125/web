@@ -1,6 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { translateUiText } from './uiTranslations'
 
 const english = {
   'header.account': 'Account',
@@ -187,139 +186,13 @@ function interpolate(value: string, replacements?: Replacements) {
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const originalText = useRef(new WeakMap<Text, string>())
-  const originalAttributes = useRef(new WeakMap<Element, Map<string, string>>())
+  // The site is fixed to English; React owns the copy, without DOM translation passes.
   const [language, updateLanguage] = useState<Language>('en')
   const setLanguage = useCallback(() => updateLanguage('en'), [])
 
   useEffect(() => {
     localStorage.setItem('hackhub-language', language)
     document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
-  }, [language])
-
-  useLayoutEffect(() => {
-    const root = document.body
-    const attributeNames = ['placeholder', 'title', 'aria-label']
-
-    const translateTextNode = (node: Text) => {
-      if (node.parentElement?.closest('[translate="no"]')) return
-      const currentValue = node.nodeValue ?? ''
-
-      if (language === 'en') {
-        const sourceValue = originalText.current.get(node)
-        if (sourceValue !== undefined && currentValue !== sourceValue) {
-          node.nodeValue = sourceValue
-        }
-        return
-      }
-
-      let sourceValue = originalText.current.get(node)
-      if (sourceValue === undefined) {
-        const translatedValue = translateUiText(currentValue)
-        if (translatedValue === currentValue) return
-        sourceValue = currentValue
-        originalText.current.set(node, sourceValue)
-      } else if (currentValue !== sourceValue && currentValue !== translateUiText(sourceValue)) {
-        const translatedValue = translateUiText(currentValue)
-        if (translatedValue === currentValue) {
-          originalText.current.delete(node)
-          return
-        }
-        sourceValue = currentValue
-        originalText.current.set(node, sourceValue)
-      }
-
-      const translatedValue = translateUiText(sourceValue)
-      if (translatedValue !== currentValue) node.nodeValue = translatedValue
-    }
-
-    const translateElementAttributes = (element: Element) => {
-      if (element.closest('[translate="no"]')) return
-      let savedAttributes = originalAttributes.current.get(element)
-      if (!savedAttributes) {
-        savedAttributes = new Map()
-        originalAttributes.current.set(element, savedAttributes)
-      }
-
-      attributeNames.forEach((attributeName) => {
-        const currentValue = element.getAttribute(attributeName)
-        if (currentValue === null) return
-
-        if (language === 'en') {
-          const sourceValue = savedAttributes.get(attributeName)
-          if (sourceValue !== undefined && currentValue !== sourceValue) {
-            element.setAttribute(attributeName, sourceValue)
-          }
-          return
-        }
-
-        let sourceValue = savedAttributes.get(attributeName)
-        if (sourceValue === undefined) {
-          const translatedValue = translateUiText(currentValue)
-          if (translatedValue === currentValue) return
-          sourceValue = currentValue
-          savedAttributes.set(attributeName, sourceValue)
-        } else if (currentValue !== sourceValue && currentValue !== translateUiText(sourceValue)) {
-          const translatedValue = translateUiText(currentValue)
-          if (translatedValue === currentValue) {
-            savedAttributes.delete(attributeName)
-            return
-          }
-          sourceValue = currentValue
-          savedAttributes.set(attributeName, sourceValue)
-        }
-
-        const translatedValue = translateUiText(sourceValue)
-        if (translatedValue !== currentValue) element.setAttribute(attributeName, translatedValue)
-      })
-    }
-
-    const translateTree = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        translateTextNode(node as Text)
-        return
-      }
-
-      if (!(node instanceof Element)) return
-      translateElementAttributes(node)
-      node.querySelectorAll('*').forEach(translateElementAttributes)
-
-      const textWalker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
-      let textNode = textWalker.nextNode()
-      while (textNode) {
-        translateTextNode(textNode as Text)
-        textNode = textWalker.nextNode()
-      }
-    }
-
-    const observer = new MutationObserver((mutations) => {
-      observer.disconnect()
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList') {
-          mutation.addedNodes.forEach(translateTree)
-        } else {
-          translateTree(mutation.target)
-        }
-      })
-      observer.observe(root, {
-        subtree: true,
-        childList: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: attributeNames,
-      })
-    })
-
-    translateTree(root)
-    observer.observe(root, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: attributeNames,
-    })
-
-    return () => observer.disconnect()
   }, [language])
 
   const toggleLanguage = useCallback(() => {

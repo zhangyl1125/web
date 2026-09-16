@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider, useLanguage } from './LanguageContext'
 import { translateUiText } from './uiTranslations'
 
@@ -19,6 +19,22 @@ function TestContent() {
 describe('LanguageProvider', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  it('does not observe or traverse the DOM in fixed English mode', () => {
+    const observe = vi.spyOn(MutationObserver.prototype, 'observe')
+    const walk = vi.spyOn(document, 'createTreeWalker')
+    try {
+      const { rerender } = render(<LanguageProvider><TestContent /></LanguageProvider>)
+      rerender(<LanguageProvider><TestContent /><span>New nomination</span></LanguageProvider>)
+      expect(screen.getByText('New nomination')).toBeInTheDocument()
+      expect(observe).not.toHaveBeenCalled()
+      // React itself may walk the tree; the removed translator used SHOW_TEXT.
+      expect(walk.mock.calls.some(([, filter]) => filter === NodeFilter.SHOW_TEXT)).toBe(false)
+    } finally {
+      observe.mockRestore()
+      walk.mockRestore()
+    }
   })
 
   it('keeps English when a language toggle is requested', () => {

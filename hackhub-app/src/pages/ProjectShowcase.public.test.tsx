@@ -34,7 +34,7 @@ describe('Public award browsing', () => {
     expect(await screen.findByRole('heading', { name: 'Nominee' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Committee scoring' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset my track votes' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Vote (2)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add to cart (2)' }))
     expect(await screen.findByText(/Login destination/)).toHaveTextContent('redirect=%2Fprojects%3Fnominee%3Dnominee-1')
   })
   it('shows the original nomination fields without asking guests to log in', async () => {
@@ -44,7 +44,7 @@ describe('Public award browsing', () => {
     expect(screen.getByRole('button', { name: 'Submit nomination' })).toBeDisabled()
     expect(screen.queryByText(/Login destination/)).not.toBeInTheDocument()
   })
-  it('combines department, category, tag and candidate filters using the displayed department prefix', async () => {
+  it('combines department, category and candidate filters using the displayed department prefix', async () => {
     const candidate = (id: string, org: string, category: string, tags: string[] = ['Java']) => ({
       id, title: id, description: 'Contribution', nominee_name: id,
       nominee_org_code: org, hackathon_id: 'award-1', category, technologies: tags,
@@ -66,8 +66,6 @@ describe('Public award browsing', () => {
     expect(document.querySelectorAll('.dp-project-card')).toHaveLength(2)
     await user.click(screen.getByRole('button', { name: /Customer Values/ }))
     expect(document.querySelectorAll('.dp-project-card')).toHaveLength(1)
-    await user.click(screen.getByPlaceholderText('Filter by tag'))
-    await user.click(screen.getByRole('option', { name: 'Java' }))
     await user.type(screen.getByPlaceholderText('Search nominees'), 'Bob')
     expect(await screen.findByText('No nominations match these filters.')).toBeInTheDocument()
     await user.clear(screen.getByPlaceholderText('Search nominees'))

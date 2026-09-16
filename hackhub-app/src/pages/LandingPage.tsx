@@ -44,24 +44,6 @@ export function LandingPage({ children }: { children?: ReactNode }) {
   useTechBackground(backdropRef, videoRef)
 
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const startVideo = () => {
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        setVideoReady(true)
-        void video.play().catch(() => {
-          // The preloaded poster remains visible if the browser blocks autoplay.
-        })
-      }
-    }
-
-    startVideo()
-    video.addEventListener('loadeddata', startVideo)
-    return () => video.removeEventListener('loadeddata', startVideo)
-  }, [])
-
-  useEffect(() => {
     if (!menuOpen) return undefined
 
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -78,7 +60,6 @@ export function LandingPage({ children }: { children?: ReactNode }) {
         <video
           ref={videoRef}
           className={videoReady ? 'is-ready' : undefined}
-          autoPlay
           muted
           loop
           playsInline

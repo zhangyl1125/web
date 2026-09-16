@@ -148,6 +148,10 @@
 .award-landing__nav-link:focus-visible::after { opacity: 1; transform: translateX(0); }
 .award-landing__nav-link:focus-visible { outline: 2px solid #b4ddff; outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
+  .award-landing__backdrop video {
+    display: none;
+  }
+
   .award-landing__nav-link, .award-landing__nav-link::after { transition: none; }
 }
 

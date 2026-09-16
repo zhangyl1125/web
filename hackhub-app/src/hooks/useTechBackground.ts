@@ -15,6 +15,34 @@ export function useTechBackground(
   hostRef: RefObject<HTMLElement | null>,
   videoRef: RefObject<HTMLVideoElement | null>,
 ) {
+  // Playback has one owner, independent of Canvas support and pointer effects.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || typeof window.matchMedia !== 'function') return
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const syncPlayback = () => {
+      if (document.hidden || motionPreference.matches) {
+        video.pause()
+      } else if (video.paused) {
+        void video.play().catch(() => {
+          // Keep the poster when autoplay is unavailable; retry on interaction.
+        })
+      }
+    }
+    video.addEventListener('loadeddata', syncPlayback)
+    document.addEventListener('visibilitychange', syncPlayback)
+    motionPreference.addEventListener('change', syncPlayback)
+    window.addEventListener('pointerdown', syncPlayback, { passive: true })
+    syncPlayback()
+    return () => {
+      video.removeEventListener('loadeddata', syncPlayback)
+      document.removeEventListener('visibilitychange', syncPlayback)
+      motionPreference.removeEventListener('change', syncPlayback)
+      window.removeEventListener('pointerdown', syncPlayback)
+      video.pause()
+    }
+  }, [videoRef])
+
   useEffect(() => {
     const currentHost = hostRef.current
     const currentVideo = videoRef.current
@@ -82,13 +110,6 @@ export function useTechBackground(
     const tint = (alpha: number) => `rgba(106,191,218,${clamp(alpha, 0, 1)})`
     const isInteractive = (target: EventTarget | null) =>
       target instanceof Element && Boolean(target.closest(interactiveSelector))
-
-    const playVideo = () => {
-      if (document.hidden || motionPreference.matches) return
-      void video.play().catch(() => {
-        // The local poster remains visible if autoplay is unavailable.
-      })
-    }
 
     function wake() {
       if (!animationFrame && !document.hidden && !motionPreference.matches) {
@@ -159,7 +180,6 @@ export function useTechBackground(
         })
       }
       if (sparks.length > 90) sparks.splice(0, sparks.length - 90)
-      playVideo()
       wake()
     }
 
@@ -327,9 +347,6 @@ export function useTechBackground(
     function syncMotionPreference() {
       if (motionPreference.matches) {
         stop()
-        video.pause()
-      } else {
-        playVideo()
       }
     }
 
@@ -339,9 +356,6 @@ export function useTechBackground(
     const onVisibilityChange = () => {
       if (document.hidden) {
         stop()
-        video.pause()
-      } else {
-        playVideo()
       }
     }
 
@@ -351,7 +365,6 @@ export function useTechBackground(
     window.addEventListener('resize', resize, { passive: true })
     window.addEventListener('blur', clearPointer)
     document.addEventListener('visibilitychange', onVisibilityChange)
-    video.addEventListener('loadeddata', syncMotionPreference)
     motionPreference.addEventListener('change', syncMotionPreference)
     resize()
     syncMotionPreference()
@@ -364,7 +377,6 @@ export function useTechBackground(
       window.removeEventListener('resize', resize)
       window.removeEventListener('blur', clearPointer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      video.removeEventListener('loadeddata', syncMotionPreference)
       motionPreference.removeEventListener('change', syncMotionPreference)
       canvas.remove()
     }

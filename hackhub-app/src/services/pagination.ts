@@ -2,8 +2,14 @@
 export async function getAllPages<T>(fetchPage: (page: number) => Promise<{ content: T[]; totalPages?: number }>): Promise<T[]> {
   const first = await fetchPage(0)
   const result = [...first.content]
-  for (let page = 1; page < (first.totalPages ?? 1); page += 1) {
-    result.push(...(await fetchPage(page)).content)
+  // Bound concurrency and preserve page order even if responses arrive out of order.
+  const totalPages = first.totalPages ?? 1
+  for (let page = 1; page < totalPages; page += 4) {
+    const pages = await Promise.all(Array.from(
+      { length: Math.min(4, totalPages - page) },
+      (_, offset) => fetchPage(page + offset),
+    ))
+    for (const next of pages) result.push(...next.content)
   }
   return result
 }

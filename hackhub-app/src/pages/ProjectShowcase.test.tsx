@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { MemoryRouter } from 'react-router-dom'
 import { ProjectShowcase } from './ProjectShowcase'
+import { ProfileService } from '../services/profileService'
+import { StorageService } from '../services/storageService'
+import { TeamService } from '../services/teamService'
 
 const { createIdea, createTeam, getOrCreateNominationTeam, getComments, addComment, getIdeas, getHackathons, updateIdea, uploadFile, voteIdea, clearMyVotes, clearTrackVotes, submitVotes, deleteVoteRecord, deleteIdea, deleteIdeas, currentUser, listNominees } = vi.hoisted(() => ({
   submitVotes: vi.fn().mockResolvedValue(undefined),
@@ -44,6 +47,7 @@ const { createIdea, createTeam, getOrCreateNominationTeam, getComments, addComme
 }))
 
 Element.prototype.scrollIntoView = vi.fn()
+Element.prototype.scrollTo = vi.fn()
 
 vi.stubGlobal('ResizeObserver', class {
   observe() {}
@@ -109,6 +113,42 @@ vi.mock('../services/judgingService', () => ({
 describe('ProjectShowcase', () => {
   beforeEach(() => { localStorage.clear(); vi.clearAllMocks() })
   afterEach(() => { currentUser.role = 'participant' })
+  it('shares duplicate profile and image requests within a load, then refreshes them on remount', async () => {
+    const page = { content: [1, 2].map((id) => ({
+      id: `shared-${id}`, title: `Shared nominee ${id}`, description: 'Shared assets',
+      createdBy: 'shared-user', category: 'Customer Values', tags: [], attachments: [],
+      projectAttachments: [{ type: 'screenshot', storageKey: 'shared-photo', url: '/fallback.jpg' }],
+      votes: 0, userHasVoted: false, status: 'submitted',
+      createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+    })) }
+    getIdeas.mockResolvedValueOnce(page).mockResolvedValueOnce(page)
+    vi.mocked(StorageService.getPresignedUrl).mockResolvedValue('/shared-photo.jpg')
+    const show = () => render(<MantineProvider><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
+    const first = show()
+    await screen.findByText('Shared nominee 2')
+    expect(ProfileService.getProfile).toHaveBeenCalledTimes(1)
+    expect(StorageService.getPresignedUrl).toHaveBeenCalledTimes(1)
+    expect(TeamService.getTeamMembers).not.toHaveBeenCalled()
+    first.unmount()
+    show()
+    await screen.findByText('Shared nominee 2')
+    expect(ProfileService.getProfile).toHaveBeenCalledTimes(2)
+    expect(StorageService.getPresignedUrl).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses nomination metadata without requesting an unused creator profile', async () => {
+    getIdeas.mockResolvedValueOnce({ content: [{
+      id: 'named-nominee', title: 'Named nominee', description: 'Nomination with metadata',
+      createdBy: 'creator', category: 'Customer Values', tags: [], attachments: [],
+      projectAttachments: [{ type: 'nomination', name: 'Named Associate', nomineeOrgCode: 'BDCN' }],
+      votes: 0, userHasVoted: false, status: 'submitted',
+      createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+    }] })
+    render(<MantineProvider><MemoryRouter><ProjectShowcase /></MemoryRouter></MantineProvider>)
+    await screen.findByText('Named nominee')
+    expect(ProfileService.getProfile).not.toHaveBeenCalled()
+  })
+
   it('shows nominees without exposing internal event concepts', async () => {
     render(
       <MantineProvider>
@@ -307,7 +347,7 @@ describe('ProjectShowcase', () => {
     expect(screen.getByRole('button', { name: 'My votes (1)' })).toBeInTheDocument()
   })
 
-  it('splits legacy combined tags into separate badges and filter options', async () => {
+  it('splits legacy combined tags into separate, deduplicated badges', async () => {
     getIdeas.mockResolvedValueOnce({ content: [{
       id: 'idea-1', title: 'Legacy tags', description: 'Combined tags', teamId: 'team-1',
       createdBy: 'user-1', category: 'AI', tags: ['IoT、Digital Twin，Cloud、IoT、'],
@@ -320,8 +360,7 @@ describe('ProjectShowcase', () => {
     expect(within(tags).getByText('IoT')).toBeInTheDocument()
     expect(within(tags).getByText('Digital Twin')).toBeInTheDocument()
     expect(within(tags).getByText('Cloud')).toBeInTheDocument()
-    await userEvent.click(screen.getByPlaceholderText('Filter by tag'))
-    expect(screen.getByRole('option', { name: 'Cloud' })).toBeInTheDocument()
+    expect(within(tags).getAllByText('IoT')).toHaveLength(1)
   })
 
   it('previews only the summary and keeps all answers in the detail dialog', async () => {

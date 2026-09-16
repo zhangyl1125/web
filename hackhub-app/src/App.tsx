@@ -1,23 +1,24 @@
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { LoadingOverlay } from '@mantine/core'
-import { useEffect, type ReactNode } from 'react'
-import { AwardManagement } from './pages/AwardManagement'
-import CreateHackathon from './pages/CreateHackathon'
-import { HackathonEdit } from './pages/HackathonEdit'
-import { ProjectShowcase } from './pages/ProjectShowcase'
-import { Profile } from './pages/Profile'
-import { Login } from './pages/Login'
-import { Register } from './pages/Register'
-import { AdminUsers } from './pages/AdminUsers'
-import { JudgingPanel } from './pages/JudgingPanel'
-import { Leaderboard } from './pages/Leaderboard'
-import { AcceptInvitation } from './pages/AcceptInvitation'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { useAuthStore } from './store/authStore'
 import { RealtimeProvider } from './contexts/RealtimeContext'
 import { DigitalPioneerOverview } from './pages/DigitalPioneerOverview'
 import { LandingPage } from './pages/LandingPage'
 import { useAwardAccess } from './hooks/useAwardAccess'
 import { loginDestination } from './lib/loginDestination'
+
+const AwardManagement = lazy(() => import('./pages/AwardManagement').then((module) => ({ default: module.AwardManagement })))
+const CreateHackathon = lazy(() => import('./pages/CreateHackathon'))
+const HackathonEdit = lazy(() => import('./pages/HackathonEdit').then((module) => ({ default: module.HackathonEdit })))
+const ProjectShowcase = lazy(() => import('./pages/ProjectShowcase').then((module) => ({ default: module.ProjectShowcase })))
+const Profile = lazy(() => import('./pages/Profile').then((module) => ({ default: module.Profile })))
+const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })))
+const Register = lazy(() => import('./pages/Register').then((module) => ({ default: module.Register })))
+const AdminUsers = lazy(() => import('./pages/AdminUsers').then((module) => ({ default: module.AdminUsers })))
+const JudgingPanel = lazy(() => import('./pages/JudgingPanel').then((module) => ({ default: module.JudgingPanel })))
+const Leaderboard = lazy(() => import('./pages/Leaderboard').then((module) => ({ default: module.Leaderboard })))
+const AcceptInvitation = lazy(() => import('./pages/AcceptInvitation').then((module) => ({ default: module.AcceptInvitation })))
 
 function ReviewAccess({ children }: { children: ReactNode }) {
   const { canReview, canManage, campaignIds, loading } = useAwardAccess()
@@ -40,9 +41,11 @@ function App() {
   // Public website sections share the landing background and original page components.
   if (['/', '/overview', '/nominate', '/projects'].includes(location.pathname)) {
     return <LandingPage>
-      {location.pathname === '/nominate' ? <ProjectShowcase nominationMode />
-        : location.pathname === '/projects' ? <ProjectShowcase />
-        : <DigitalPioneerOverview />}
+      <Suspense fallback={<LoadingOverlay visible />}>
+        {location.pathname === '/nominate' ? <ProjectShowcase nominationMode />
+          : location.pathname === '/projects' ? <ProjectShowcase />
+          : <DigitalPioneerOverview />}
+      </Suspense>
     </LandingPage>
   }
 
@@ -53,14 +56,16 @@ function App() {
 
   if (!user) {
     return (
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/organization/setup" element={<Navigate to="/" replace />} />
-        <Route path="/invite/:token" element={<AcceptInvitation />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<LoadingOverlay visible />}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/organization/setup" element={<Navigate to="/" replace />} />
+          <Route path="/invite/:token" element={<AcceptInvitation />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     )
   }
 
@@ -69,6 +74,7 @@ function App() {
   return (
     <RealtimeProvider>
       <LandingPage>
+        <Suspense fallback={<LoadingOverlay visible />}>
           <Routes>
             <Route path="/overview" element={<DigitalPioneerOverview />} />
             <Route path="/committee" element={<ReviewAccess><AwardManagement /></ReviewAccess>} />
@@ -100,6 +106,7 @@ function App() {
             <Route path="/login" element={<Navigate to={loginDestination(location.search)} replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+        </Suspense>
       </LandingPage>
     </RealtimeProvider>
   )
